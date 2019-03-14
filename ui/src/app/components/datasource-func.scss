@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,17 +13,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-.tb-func-datakey-autocomplete {
-  .tb-not-found {
-    display: block;
-    line-height: 1.5;
-    height: 48px;
-    .tb-no-entries {
-      line-height: 48px;
+@import "../../scss/constants";
+
+.tb-datasource-func {
+  @media (min-width: $layout-breakpoint-sm) {
+    padding-left: 8px;
+  }
+
+  md-input-container.tb-datasource-name {
+    .md-errors-spacer {
+      display: none;
     }
   }
-  li {
-    height: auto !important;
-    white-space: normal !important;
+
+  .tb-func-datakey-autocomplete,
+  .tb-alarm-datakey-autocomplete {
+    .tb-not-found {
+      display: block;
+      height: 48px;
+      line-height: 1.5;
+
+      .tb-no-entries {
+        line-height: 48px;
+      }
+    }
+
+    li {
+      height: auto !important;
+      white-space: normal !important;
+    }
   }
 }

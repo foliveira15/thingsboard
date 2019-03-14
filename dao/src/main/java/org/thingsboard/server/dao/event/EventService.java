@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package org.thingsboard.server.dao.event;
 
+import com.google.common.util.concurrent.ListenableFuture;
 import org.thingsboard.server.common.data.Event;
 import org.thingsboard.server.common.data.id.EntityId;
 import org.thingsboard.server.common.data.id.TenantId;
@@ -28,6 +29,8 @@ public interface EventService {
 
     Event save(Event event);
 
+    ListenableFuture<Event> saveAsync(Event event);
+
     Optional<Event> saveIfNotExists(Event event);
 
     Optional<Event> findEvent(TenantId tenantId, EntityId entityId, String eventType, String eventUid);
@@ -35,4 +38,7 @@ public interface EventService {
     TimePageData<Event> findEvents(TenantId tenantId, EntityId entityId, TimePageLink pageLink);
 
     TimePageData<Event> findEvents(TenantId tenantId, EntityId entityId, String eventType, TimePageLink pageLink);
+
+    List<Event> findLatestEvents(TenantId tenantId, EntityId entityId, String eventType, int limit);
+
 }

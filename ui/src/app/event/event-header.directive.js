@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 import eventHeaderLcEventTemplate from './event-header-lc-event.tpl.html';
 import eventHeaderStatsTemplate from './event-header-stats.tpl.html';
 import eventHeaderErrorTemplate from './event-header-error.tpl.html';
-import eventHeaderAlarmTemplate from './event-header-alarm.tpl.html';
+import eventHeaderDebugRuleNodeTemplate from './event-header-debug-rulenode.tpl.html';
 
 /* eslint-enable import/no-unresolved, import/default */
 
@@ -39,8 +39,11 @@ export default function EventHeaderDirective($compile, $templateCache, types) {
                 case types.eventType.error.value:
                     template = eventHeaderErrorTemplate;
                     break;
-                case types.eventType.alarm.value:
-                    template = eventHeaderAlarmTemplate;
+                case types.debugEventType.debugRuleNode.value:
+                    template = eventHeaderDebugRuleNodeTemplate;
+                    break;
+                case types.debugEventType.debugRuleChain.value:
+                    template = eventHeaderDebugRuleNodeTemplate;
                     break;
             }
             return $templateCache.get(template);

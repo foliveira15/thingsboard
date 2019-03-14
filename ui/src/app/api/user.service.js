@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,8 +22,13 @@ export default angular.module('thingsboard.api.user', [thingsboardApiLogin,
     .name;
 
 /*@ngInject*/
-function UserService($http, $q, $rootScope, store, jwtHelper, $translate) {
+function UserService($http, $q, $rootScope, adminService, dashboardService, timeService, loginService, toast, store, jwtHelper, $translate, $state, $location) {
     var currentUser = null,
+        currentUserDetails = null,
+        lastPublicDashboardId = null,
+        allowedDashboardIds = [],
+        redirectParams = null,
+        userTokenAccessEnabled = false,
         userLoaded = false;
 
     var refreshTokenQueue = [];
@@ -31,6 +36,9 @@ function UserService($http, $q, $rootScope, store, jwtHelper, $translate) {
     var service = {
         deleteUser: deleteUser,
         getAuthority: getAuthority,
+        isPublic: isPublic,
+        getPublicId: getPublicId,
+        parsePublicId: parsePublicId,
         isAuthenticated: isAuthenticated,
         getCurrentUser: getCurrentUser,
         getCustomerUsers: getCustomerUsers,
@@ -39,6 +47,7 @@ function UserService($http, $q, $rootScope, store, jwtHelper, $translate) {
         isUserLoaded: isUserLoaded,
         saveUser: saveUser,
         sendActivationEmail: sendActivationEmail,
+        getActivationLink: getActivationLink,
         setUserFromJwtToken: setUserFromJwtToken,
         getJwtToken: getJwtToken,
         clearJwtToken: clearJwtToken,
@@ -47,18 +56,31 @@ function UserService($http, $q, $rootScope, store, jwtHelper, $translate) {
         refreshJwtToken: refreshJwtToken,
         refreshTokenPending: refreshTokenPending,
         updateAuthorizationHeader: updateAuthorizationHeader,
-        logout: logout
+        setAuthorizationRequestHeader: setAuthorizationRequestHeader,
+        setRedirectParams: setRedirectParams,
+        gotoDefaultPlace: gotoDefaultPlace,
+        forceDefaultPlace: forceDefaultPlace,
+        updateLastPublicDashboardId: updateLastPublicDashboardId,
+        logout: logout,
+        reloadUser: reloadUser,
+        isUserTokenAccessEnabled: isUserTokenAccessEnabled,
+        loginAsUser: loginAsUser
     }
 
-    loadUser(true).then(function success() {
-        notifyUserLoaded();
-    }, function fail() {
-        notifyUserLoaded();
-    });
+    reloadUser();
 
     return service;
 
-    function updateAndValidateToken(token, prefix) {
+    function reloadUser() {
+        userLoaded = false;
+        loadUser(true).then(function success() {
+            notifyUserLoaded();
+        }, function fail() {
+            notifyUserLoaded();
+        });
+    }
+
+    function updateAndValidateToken(token, prefix, notify) {
         var valid = false;
         var tokenData = jwtHelper.decodeToken(token);
         var issuedAt = tokenData.iat;
@@ -72,7 +94,7 @@ function UserService($http, $q, $rootScope, store, jwtHelper, $translate) {
                 valid = true;
             }
         }
-        if (!valid) {
+        if (!valid && notify) {
             $rootScope.$broadcast('unauthenticated');
         }
     }
@@ -86,14 +108,18 @@ function UserService($http, $q, $rootScope, store, jwtHelper, $translate) {
 
     function setUserFromJwtToken(jwtToken, refreshToken, notify, doLogout) {
         currentUser = null;
+        currentUserDetails = null;
+        lastPublicDashboardId = null;
+        userTokenAccessEnabled = false;
+        allowedDashboardIds = [];
         if (!jwtToken) {
             clearTokenData();
             if (notify) {
                 $rootScope.$broadcast('unauthenticated', doLogout);
             }
         } else {
-            updateAndValidateToken(jwtToken, 'jwt_token');
-            updateAndValidateToken(refreshToken, 'refresh_token');
+            updateAndValidateToken(jwtToken, 'jwt_token', true);
+            updateAndValidateToken(refreshToken, 'refresh_token', true);
             if (notify) {
                 loadUser(false).then(function success() {
                     $rootScope.$broadcast('authenticated');
@@ -151,14 +177,14 @@ function UserService($http, $q, $rootScope, store, jwtHelper, $translate) {
     }
 
     function resolveRefreshTokenQueue(data) {
-        for (var q in refreshTokenQueue) {
+        for (var q=0; q < refreshTokenQueue.length;q++) {
             refreshTokenQueue[q].resolve(data);
         }
         refreshTokenQueue = [];
     }
 
     function rejectRefreshTokenQueue(message) {
-        for (var q in refreshTokenQueue) {
+        for (var q=0;q<refreshTokenQueue.length;q++) {
             refreshTokenQueue[q].reject(message);
         }
         refreshTokenQueue = [];
@@ -207,13 +233,70 @@ function UserService($http, $q, $rootScope, store, jwtHelper, $translate) {
         }
     }
 
+    function isPublic() {
+        if (currentUser) {
+            return currentUser.isPublic;
+        } else {
+            return false;
+        }
+    }
+
+    function getPublicId() {
+        if (isPublic()) {
+            return currentUser.sub;
+        } else {
+            return null;
+        }
+    }
+
+    function parsePublicId() {
+        var token = getJwtToken();
+        if (token) {
+            var tokenData = jwtHelper.decodeToken(token);
+            if (tokenData && tokenData.isPublic) {
+                return tokenData.sub;
+            }
+        }
+        return null;
+    }
+
     function isUserLoaded() {
         return userLoaded;
     }
 
     function loadUser(doTokenRefresh) {
+
         var deferred = $q.defer();
-        if (!currentUser) {
+
+        function fetchAllowedDashboardIds() {
+            var pageLink = {limit: 100};
+            var fetchDashboardsPromise;
+            if (currentUser.authority === 'TENANT_ADMIN') {
+                fetchDashboardsPromise = dashboardService.getTenantDashboards(pageLink);
+            } else {
+                fetchDashboardsPromise = dashboardService.getCustomerDashboards(currentUser.customerId, pageLink);
+            }
+            fetchDashboardsPromise.then(
+                function success(result) {
+                    var dashboards = result.data;
+                    for (var d=0;d<dashboards.length;d++) {
+                        allowedDashboardIds.push(dashboards[d].id.id);
+                    }
+                    deferred.resolve();
+                },
+                function fail() {
+                    deferred.reject();
+                }
+            );
+        }
+
+        function updateUserLang() {
+            if (currentUserDetails.additionalInfo && currentUserDetails.additionalInfo.lang) {
+                $translate.use(currentUserDetails.additionalInfo.lang);
+            }
+        }
+
+        function procceedJwtTokenValidate() {
             validateJwtToken(doTokenRefresh).then(function success() {
                 var jwtToken = store.get('jwt_token');
                 currentUser = jwtHelper.decodeToken(jwtToken);
@@ -222,14 +305,95 @@ function UserService($http, $q, $rootScope, store, jwtHelper, $translate) {
                 } else if (currentUser) {
                     currentUser.authority = "ANONYMOUS";
                 }
-                deferred.resolve();
+                var sysParamsPromise = loadSystemParams();
+                if (currentUser.isPublic) {
+                    $rootScope.forceFullscreen = true;
+                    sysParamsPromise.then(
+                        () => { fetchAllowedDashboardIds(); },
+                        () => { deferred.reject(); }
+                    );
+                } else if (currentUser.userId) {
+                    getUser(currentUser.userId, true).then(
+                        function success(user) {
+                            sysParamsPromise.then(
+                                () => {
+                                    currentUserDetails = user;
+                                    updateUserLang();
+                                    $rootScope.forceFullscreen = false;
+                                    if (userForceFullscreen()) {
+                                        $rootScope.forceFullscreen = true;
+                                    }
+                                    if ($rootScope.forceFullscreen && (currentUser.authority === 'TENANT_ADMIN' ||
+                                        currentUser.authority === 'CUSTOMER_USER')) {
+                                        fetchAllowedDashboardIds();
+                                    } else {
+                                        deferred.resolve();
+                                    }
+                                },
+                                () => {
+                                    deferred.reject();
+                                    logout();
+                                }
+                            );
+                        },
+                        function fail() {
+                            deferred.reject();
+                            logout();
+                        }
+                    )
+                } else {
+                    deferred.reject();
+                }
             }, function fail() {
                 deferred.reject();
             });
+        }
+
+        if (!currentUser) {
+            var locationSearch = $location.search();
+            if (locationSearch.publicId) {
+                loginService.publicLogin(locationSearch.publicId).then(function success(response) {
+                    var token = response.data.token;
+                    var refreshToken = response.data.refreshToken;
+                    updateAndValidateToken(token, 'jwt_token', false);
+                    updateAndValidateToken(refreshToken, 'refresh_token', false);
+                    procceedJwtTokenValidate();
+                }, function fail() {
+                    $location.search('publicId', null);
+                    deferred.reject();
+                });
+            } else {
+                procceedJwtTokenValidate();
+            }
         } else {
             deferred.resolve();
         }
         return deferred.promise;
+    }
+
+    function loadIsUserTokenAccessEnabled() {
+        var deferred = $q.defer();
+        if (currentUser.authority === 'SYS_ADMIN' || currentUser.authority === 'TENANT_ADMIN') {
+            var url = '/api/user/tokenAccessEnabled';
+            $http.get(url).then(function success(response) {
+                userTokenAccessEnabled = response.data;
+                deferred.resolve(response.data);
+            }, function fail() {
+                userTokenAccessEnabled = false;
+                deferred.reject();
+            });
+        } else {
+            userTokenAccessEnabled = false;
+            deferred.resolve(false);
+        }
+        return deferred.promise;
+    }
+
+    function loadSystemParams() {
+        var promises = [];
+        promises.push(loadIsUserTokenAccessEnabled());
+        promises.push(timeService.loadMaxDatapointsLimit());
+        return $q.all(promises);
     }
 
     function notifyUserLoaded() {
@@ -243,6 +407,14 @@ function UserService($http, $q, $rootScope, store, jwtHelper, $translate) {
         var jwtToken = store.get('jwt_token');
         if (jwtToken) {
             headers['X-Authorization'] = 'Bearer ' + jwtToken;
+        }
+        return jwtToken;
+    }
+
+    function setAuthorizationRequestHeader(request) {
+        var jwtToken = store.get('jwt_token');
+        if (jwtToken) {
+            request.setRequestHeader('X-Authorization', 'Bearer ' + jwtToken);
         }
         return jwtToken;
     }
@@ -287,24 +459,31 @@ function UserService($http, $q, $rootScope, store, jwtHelper, $translate) {
         return deferred.promise;
     }
 
-    function saveUser(user) {
+    function saveUser(user, sendActivationMail) {
         var deferred = $q.defer();
         var url = '/api/user';
+        if (angular.isDefined(sendActivationMail)) {
+            url += '?sendActivationMail=' + sendActivationMail;
+        }
         $http.post(url, user).then(function success(response) {
             deferred.resolve(response.data);
-        }, function fail(response) {
-            deferred.reject(response.data);
+        }, function fail() {
+            deferred.reject();
         });
         return deferred.promise;
     }
 
-    function getUser(userId) {
+    function getUser(userId, ignoreErrors, config) {
         var deferred = $q.defer();
         var url = '/api/user/' + userId;
-        $http.get(url).then(function success(response) {
+        if (!config) {
+            config = {};
+        }
+        config = Object.assign(config, { ignoreErrors: ignoreErrors });
+        $http.get(url, config).then(function success(response) {
             deferred.resolve(response.data);
-        }, function fail(response) {
-            deferred.reject(response.data);
+        }, function fail() {
+            deferred.reject();
         });
         return deferred.promise;
     }
@@ -314,8 +493,8 @@ function UserService($http, $q, $rootScope, store, jwtHelper, $translate) {
         var url = '/api/user/' + userId;
         $http.delete(url).then(function success() {
             deferred.resolve();
-        }, function fail(response) {
-            deferred.reject(response.data);
+        }, function fail() {
+            deferred.reject();
         });
         return deferred.promise;
     }
@@ -329,6 +508,108 @@ function UserService($http, $q, $rootScope, store, jwtHelper, $translate) {
             deferred.reject();
         });
         return deferred.promise;
+    }
+
+    function getActivationLink(userId) {
+        var deferred = $q.defer();
+        var url = `/api/user/${userId}/activationLink`
+        $http.get(url).then(function success(response) {
+            deferred.resolve(response.data);
+        }, function fail() {
+            deferred.reject();
+        });
+        return deferred.promise;
+    }
+
+    function forceDefaultPlace(to, params) {
+        if (currentUser && isAuthenticated()) {
+            if (currentUser.authority === 'TENANT_ADMIN' || currentUser.authority === 'CUSTOMER_USER') {
+                if ((userHasDefaultDashboard() && $rootScope.forceFullscreen) || isPublic()) {
+                    if (to.name === 'home.profile') {
+                        if (userHasProfile()) {
+                            return false;
+                        } else {
+                            return true;
+                        }
+                    } else if ((to.name === 'home.dashboards.dashboard' || to.name === 'dashboard')
+                        && allowedDashboardIds.indexOf(params.dashboardId) > -1) {
+                        return false;
+                    } else {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    function setRedirectParams(params) {
+        redirectParams = params;
+    }
+
+    function gotoDefaultPlace(params) {
+        if (currentUser && isAuthenticated()) {
+            var place = redirectParams ? redirectParams.toName : 'home.links';
+            params = redirectParams ? redirectParams.params : params;
+            redirectParams = null;
+            if (currentUser.authority === 'TENANT_ADMIN' || currentUser.authority === 'CUSTOMER_USER') {
+                if (userHasDefaultDashboard()) {
+                    place = $rootScope.forceFullscreen ? 'dashboard' : 'home.dashboards.dashboard';
+                    params = {dashboardId: currentUserDetails.additionalInfo.defaultDashboardId};
+                } else if (isPublic()) {
+                    place = 'dashboard';
+                    params = {dashboardId: lastPublicDashboardId};
+                }
+            } else if (currentUser.authority === 'SYS_ADMIN') {
+                adminService.checkUpdates().then(
+                    function (updateMessage) {
+                        if (updateMessage && updateMessage.updateAvailable) {
+                            toast.showInfo(updateMessage.message, 0, null, 'bottom right');
+                        }
+                    }
+                );
+            }
+            $state.go(place, params, {reload: true});
+        } else {
+            $state.go('login', params);
+        }
+    }
+
+    function userHasDefaultDashboard() {
+        return currentUserDetails &&
+               currentUserDetails.additionalInfo &&
+               currentUserDetails.additionalInfo.defaultDashboardId;
+    }
+
+    function userForceFullscreen() {
+        return (currentUser && currentUser.isPublic) ||
+               (currentUserDetails.additionalInfo &&
+                currentUserDetails.additionalInfo.defaultDashboardFullscreen &&
+                currentUserDetails.additionalInfo.defaultDashboardFullscreen === true);
+    }
+
+    function userHasProfile() {
+        return currentUser && !currentUser.isPublic;
+    }
+
+    function updateLastPublicDashboardId(dashboardId) {
+        if (isPublic()) {
+            lastPublicDashboardId = dashboardId;
+        }
+    }
+
+    function isUserTokenAccessEnabled() {
+        return userTokenAccessEnabled;
+    }
+
+    function loginAsUser(userId) {
+        var url = '/api/user/' + userId + '/token';
+        $http.get(url).then(function success(response) {
+            var token = response.data.token;
+            var refreshToken = response.data.refreshToken;
+            setUserFromJwtToken(token, refreshToken, true);
+        }, function fail() {
+        });
     }
 
 }

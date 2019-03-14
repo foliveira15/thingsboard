@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,29 +15,31 @@
  */
 package org.thingsboard.server.dao.timeseries;
 
-import com.datastax.driver.core.ResultSet;
-import com.datastax.driver.core.ResultSetFuture;
-import com.datastax.driver.core.Row;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import lombok.extern.slf4j.Slf4j;
-import org.thingsboard.server.common.data.id.UUIDBased;
-import org.thingsboard.server.common.data.kv.TsKvEntry;
-import org.thingsboard.server.common.data.kv.TsKvQuery;
-import org.thingsboard.server.dao.exception.IncorrectParameterException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.thingsboard.server.common.data.EntityType;
+import org.thingsboard.server.common.data.EntityView;
+import org.thingsboard.server.common.data.id.EntityId;
+import org.thingsboard.server.common.data.id.EntityViewId;
+import org.thingsboard.server.common.data.id.TenantId;
+import org.thingsboard.server.common.data.kv.Aggregation;
+import org.thingsboard.server.common.data.kv.BaseReadTsKvQuery;
+import org.thingsboard.server.common.data.kv.DeleteTsKvQuery;
+import org.thingsboard.server.common.data.kv.ReadTsKvQuery;
+import org.thingsboard.server.common.data.kv.TsKvEntry;
+import org.thingsboard.server.dao.entityview.EntityViewService;
+import org.thingsboard.server.dao.exception.IncorrectParameterException;
 import org.thingsboard.server.dao.service.Validator;
 
-import javax.annotation.PostConstruct;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.apache.commons.lang3.StringUtils.isBlank;
 
@@ -48,120 +50,174 @@ import static org.apache.commons.lang3.StringUtils.isBlank;
 @Slf4j
 public class BaseTimeseriesService implements TimeseriesService {
 
-    public static final int INSERTS_PER_ENTRY = 3;
+    private static final int INSERTS_PER_ENTRY = 3;
+    private static final int DELETES_PER_ENTRY = INSERTS_PER_ENTRY;
 
-    @Value("${cassandra.query.ts_key_value_partitioning}")
-    private String partitioning;
+    @Value("${database.ts_max_intervals}")
+    private long maxTsIntervals;
 
     @Autowired
     private TimeseriesDao timeseriesDao;
 
-    private TsPartitionDate tsFormat;
+    @Autowired
+    private EntityViewService entityViewService;
 
-    @PostConstruct
-    public void init() {
-        Optional<TsPartitionDate> partition = TsPartitionDate.parse(partitioning);
-        if (partition.isPresent()) {
-            tsFormat = partition.get();
-        } else {
-            log.warn("Incorrect configuration of partitioning {}", partitioning);
-            throw new RuntimeException("Failed to parse partitioning property: " + partitioning + "!");
+    @Override
+    public ListenableFuture<List<TsKvEntry>> findAll(TenantId tenantId, EntityId entityId, List<ReadTsKvQuery> queries) {
+        validate(entityId);
+        queries.forEach(this::validate);
+        if (entityId.getEntityType().equals(EntityType.ENTITY_VIEW)) {
+            EntityView entityView = entityViewService.findEntityViewById(tenantId, (EntityViewId) entityId);
+            List<ReadTsKvQuery> filteredQueries =
+                    queries.stream()
+                            .filter(query -> entityView.getKeys().getTimeseries().isEmpty() || entityView.getKeys().getTimeseries().contains(query.getKey()))
+                            .collect(Collectors.toList());
+            return timeseriesDao.findAllAsync(tenantId, entityView.getEntityId(), updateQueriesForEntityView(entityView, filteredQueries));
         }
+        return timeseriesDao.findAllAsync(tenantId, entityId, queries);
     }
 
     @Override
-    public List<TsKvEntry> find(String entityType, UUIDBased entityId, TsKvQuery query) {
-        validate(entityType, entityId);
-        validate(query);
-        return timeseriesDao.find(entityType, entityId.getId(), query, toPartitionTs(query.getStartTs()), toPartitionTs(query.getEndTs()));
-    }
-
-    private Optional<Long> toPartitionTs(Optional<Long> ts) {
-        if (ts.isPresent()) {
-            return Optional.of(toPartitionTs(ts.get()));
-        } else {
-            return Optional.empty();
-        }
-    }
-
-    @Override
-    public ListenableFuture<List<ResultSet>> findLatest(String entityType, UUIDBased entityId, Collection<String> keys) {
-        validate(entityType, entityId);
-        List<ResultSetFuture> futures = Lists.newArrayListWithExpectedSize(keys.size());
+    public ListenableFuture<List<TsKvEntry>> findLatest(TenantId tenantId, EntityId entityId, Collection<String> keys) {
+        validate(entityId);
+        List<ListenableFuture<TsKvEntry>> futures = Lists.newArrayListWithExpectedSize(keys.size());
         keys.forEach(key -> Validator.validateString(key, "Incorrect key " + key));
-        keys.forEach(key -> futures.add(timeseriesDao.findLatest(entityType, entityId.getId(), key)));
+        if (entityId.getEntityType().equals(EntityType.ENTITY_VIEW)) {
+            EntityView entityView = entityViewService.findEntityViewById(tenantId, (EntityViewId) entityId);
+            List<String> filteredKeys = new ArrayList<>(keys);
+            if (entityView.getKeys() != null && entityView.getKeys().getTimeseries() != null &&
+                    !entityView.getKeys().getTimeseries().isEmpty()) {
+                filteredKeys.retainAll(entityView.getKeys().getTimeseries());
+            }
+            List<ReadTsKvQuery> queries =
+                    filteredKeys.stream()
+                            .map(key -> {
+                                long endTs = entityView.getEndTimeMs() != 0 ? entityView.getEndTimeMs() : Long.MAX_VALUE;
+                                return new BaseReadTsKvQuery(key, entityView.getStartTimeMs(), endTs, 1, "DESC");
+                            })
+                            .collect(Collectors.toList());
+
+            if (queries.size() > 0) {
+                return timeseriesDao.findAllAsync(tenantId, entityView.getEntityId(), queries);
+            } else {
+                return Futures.immediateFuture(new ArrayList<>());
+            }
+        }
+        keys.forEach(key -> futures.add(timeseriesDao.findLatest(tenantId, entityId, key)));
         return Futures.allAsList(futures);
     }
 
     @Override
-    public ResultSetFuture findAllLatest(String entityType, UUIDBased entityId) {
-        validate(entityType, entityId);
-        return timeseriesDao.findAllLatest(entityType, entityId.getId());
+    public ListenableFuture<List<TsKvEntry>> findAllLatest(TenantId tenantId, EntityId entityId) {
+        validate(entityId);
+        if (entityId.getEntityType().equals(EntityType.ENTITY_VIEW)) {
+            EntityView entityView = entityViewService.findEntityViewById(tenantId, (EntityViewId) entityId);
+            if (entityView.getKeys() != null && entityView.getKeys().getTimeseries() != null &&
+                    !entityView.getKeys().getTimeseries().isEmpty()) {
+                return findLatest(tenantId, entityId, entityView.getKeys().getTimeseries());
+            } else {
+                return Futures.immediateFuture(new ArrayList<>());
+            }
+        } else {
+            return timeseriesDao.findAllLatest(tenantId, entityId);
+        }
     }
 
     @Override
-    public ListenableFuture<List<ResultSet>> save(String entityType, UUIDBased entityId, TsKvEntry tsKvEntry) {
-        validate(entityType, entityId);
+    public ListenableFuture<List<Void>> save(TenantId tenantId, EntityId entityId, TsKvEntry tsKvEntry) {
+        validate(entityId);
         if (tsKvEntry == null) {
             throw new IncorrectParameterException("Key value entry can't be null");
         }
-        UUID uid = entityId.getId();
-        long partitionTs = toPartitionTs(tsKvEntry.getTs());
-
-        List<ResultSetFuture> futures = Lists.newArrayListWithExpectedSize(INSERTS_PER_ENTRY);
-        saveAndRegisterFutures(futures, entityType, tsKvEntry, uid, partitionTs);
+        List<ListenableFuture<Void>> futures = Lists.newArrayListWithExpectedSize(INSERTS_PER_ENTRY);
+        saveAndRegisterFutures(tenantId, futures, entityId, tsKvEntry, 0L);
         return Futures.allAsList(futures);
     }
 
     @Override
-    public ListenableFuture<List<ResultSet>> save(String entityType, UUIDBased entityId, List<TsKvEntry> tsKvEntries) {
-        validate(entityType, entityId);
-        List<ResultSetFuture> futures = Lists.newArrayListWithExpectedSize(tsKvEntries.size() * INSERTS_PER_ENTRY);
+    public ListenableFuture<List<Void>> save(TenantId tenantId, EntityId entityId, List<TsKvEntry> tsKvEntries, long ttl) {
+        List<ListenableFuture<Void>> futures = Lists.newArrayListWithExpectedSize(tsKvEntries.size() * INSERTS_PER_ENTRY);
         for (TsKvEntry tsKvEntry : tsKvEntries) {
             if (tsKvEntry == null) {
                 throw new IncorrectParameterException("Key value entry can't be null");
             }
-            UUID uid = entityId.getId();
-            long partitionTs = toPartitionTs(tsKvEntry.getTs());
-            saveAndRegisterFutures(futures, entityType, tsKvEntry, uid, partitionTs);
+            saveAndRegisterFutures(tenantId, futures, entityId, tsKvEntry, ttl);
         }
         return Futures.allAsList(futures);
     }
 
-    @Override
-    public TsKvEntry convertResultToTsKvEntry(Row row) {
-        return timeseriesDao.convertResultToTsKvEntry(row);
+    private void saveAndRegisterFutures(TenantId tenantId, List<ListenableFuture<Void>> futures, EntityId entityId, TsKvEntry tsKvEntry, long ttl) {
+        if (entityId.getEntityType().equals(EntityType.ENTITY_VIEW)) {
+            throw new IncorrectParameterException("Telemetry data can't be stored for entity view. Read only");
+        }
+        futures.add(timeseriesDao.savePartition(tenantId, entityId, tsKvEntry.getTs(), tsKvEntry.getKey(), ttl));
+        futures.add(timeseriesDao.saveLatest(tenantId, entityId, tsKvEntry));
+        futures.add(timeseriesDao.save(tenantId, entityId, tsKvEntry, ttl));
+    }
+
+    private List<ReadTsKvQuery> updateQueriesForEntityView(EntityView entityView, List<ReadTsKvQuery> queries) {
+        return queries.stream().map(query -> {
+            long startTs;
+            if (entityView.getStartTimeMs() != 0 && entityView.getStartTimeMs() > query.getStartTs()) {
+                startTs = entityView.getStartTimeMs();
+            } else {
+                startTs = query.getStartTs();
+            }
+
+            long endTs;
+            if (entityView.getEndTimeMs() != 0 && entityView.getEndTimeMs() < query.getEndTs()) {
+                endTs = entityView.getEndTimeMs();
+            } else {
+                endTs = query.getEndTs();
+            }
+            return new BaseReadTsKvQuery(query.getKey(), startTs, endTs, query.getInterval(), query.getLimit(), query.getAggregation());
+        }).collect(Collectors.toList());
     }
 
     @Override
-    public List<TsKvEntry> convertResultSetToTsKvEntryList(ResultSet rs) {
-        return timeseriesDao.convertResultToTsKvEntryList(rs.all());
+    public ListenableFuture<List<Void>> remove(TenantId tenantId, EntityId entityId, List<DeleteTsKvQuery> deleteTsKvQueries) {
+        validate(entityId);
+        deleteTsKvQueries.forEach(BaseTimeseriesService::validate);
+        List<ListenableFuture<Void>> futures = Lists.newArrayListWithExpectedSize(deleteTsKvQueries.size() * DELETES_PER_ENTRY);
+        for (DeleteTsKvQuery tsKvQuery : deleteTsKvQueries) {
+            deleteAndRegisterFutures(tenantId, futures, entityId, tsKvQuery);
+        }
+        return Futures.allAsList(futures);
     }
 
-    private void saveAndRegisterFutures(List<ResultSetFuture> futures, String entityType, TsKvEntry tsKvEntry, UUID uid, long partitionTs) {
-        futures.add(timeseriesDao.savePartition(entityType, uid, partitionTs, tsKvEntry.getKey()));
-        futures.add(timeseriesDao.saveLatest(entityType, uid, tsKvEntry));
-        futures.add(timeseriesDao.save(entityType, uid, partitionTs, tsKvEntry));
+    private void deleteAndRegisterFutures(TenantId tenantId, List<ListenableFuture<Void>> futures, EntityId entityId, DeleteTsKvQuery query) {
+        futures.add(timeseriesDao.remove(tenantId, entityId, query));
+        futures.add(timeseriesDao.removeLatest(tenantId, entityId, query));
+        futures.add(timeseriesDao.removePartition(tenantId, entityId, query));
     }
 
-    private long toPartitionTs(long ts) {
-        LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneOffset.UTC);
-
-        LocalDateTime parititonTime = tsFormat.truncatedTo(time);
-
-        return parititonTime.toInstant(ZoneOffset.UTC).toEpochMilli();
+    private static void validate(EntityId entityId) {
+        Validator.validateEntityId(entityId, "Incorrect entityId " + entityId);
     }
 
-    private static void validate(String entityType, UUIDBased entityId) {
-        Validator.validateString(entityType, "Incorrect entityType " + entityType);
-        Validator.validateId(entityId, "Incorrect entityId " + entityId);
-    }
-
-    private static void validate(TsKvQuery query) {
+    private void validate(ReadTsKvQuery query) {
         if (query == null) {
-            throw new IncorrectParameterException("TsKvQuery can't be null");
+            throw new IncorrectParameterException("ReadTsKvQuery can't be null");
         } else if (isBlank(query.getKey())) {
-            throw new IncorrectParameterException("Incorrect TsKvQuery. Key can't be empty");
+            throw new IncorrectParameterException("Incorrect ReadTsKvQuery. Key can't be empty");
+        } else if (query.getAggregation() == null) {
+            throw new IncorrectParameterException("Incorrect ReadTsKvQuery. Aggregation can't be empty");
+        }
+        if(!Aggregation.NONE.equals(query.getAggregation())) {
+            long step = Math.max(query.getInterval(), 1000);
+            long intervalCounts = (query.getEndTs() - query.getStartTs()) / step;
+            if (intervalCounts > maxTsIntervals || intervalCounts < 0) {
+                throw new IncorrectParameterException("Incorrect TsKvQuery. Number of intervals is to high - " + intervalCounts + ". " +
+                        "Please increase 'interval' parameter for your query or reduce the time range of the query.");
+            }
+        }
+    }
+
+    private static void validate(DeleteTsKvQuery query) {
+        if (query == null) {
+            throw new IncorrectParameterException("DeleteTsKvQuery can't be null");
+        } else if (isBlank(query.getKey())) {
+            throw new IncorrectParameterException("Incorrect DeleteTsKvQuery. Key can't be empty");
         }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,8 @@ import thingsboardToast from '../services/toast';
 
 import UserRoutes from './user.routes';
 import UserController from './user.controller';
+import AddUserController from './add-user.controller';
+import ActivationLinkDialogController from './activation-link.controller';
 import UserDirective from './user.directive';
 
 export default angular.module('thingsboard.user', [
@@ -30,5 +32,7 @@ export default angular.module('thingsboard.user', [
 ])
     .config(UserRoutes)
     .controller('UserController', UserController)
+    .controller('AddUserController', AddUserController)
+    .controller('ActivationLinkDialogController', ActivationLinkDialogController)
     .directive('tbUser', UserDirective)
     .name;

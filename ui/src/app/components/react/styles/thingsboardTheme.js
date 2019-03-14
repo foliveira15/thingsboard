@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -58,6 +58,6 @@ var indigoPalette = {
 
 export default {
     spacing: spacing,
-    fontFamily: 'RobotoDraft, Roboto, \'Helvetica Neue\', sans-serif',
+    fontFamily: 'Roboto, \'Helvetica Neue\', sans-serif',
     palette: indigoPalette,
 };

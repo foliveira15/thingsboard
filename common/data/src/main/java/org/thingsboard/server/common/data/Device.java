@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,20 +15,22 @@
  */
 package org.thingsboard.server.common.data;
 
+import lombok.EqualsAndHashCode;
 import org.thingsboard.server.common.data.id.CustomerId;
 import org.thingsboard.server.common.data.id.DeviceId;
 import org.thingsboard.server.common.data.id.TenantId;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
-public class Device extends SearchTextBased<DeviceId> {
+@EqualsAndHashCode(callSuper = true)
+public class Device extends SearchTextBasedWithAdditionalInfo<DeviceId> implements HasName, HasTenantId, HasCustomerId {
 
     private static final long serialVersionUID = 2807343040519543363L;
 
     private TenantId tenantId;
     private CustomerId customerId;
     private String name;
-    private JsonNode additionalInfo;
+    private String type;
 
     public Device() {
         super();
@@ -43,7 +45,7 @@ public class Device extends SearchTextBased<DeviceId> {
         this.tenantId = device.getTenantId();
         this.customerId = device.getCustomerId();
         this.name = device.getName();
-        this.additionalInfo = device.getAdditionalInfo();
+        this.type = device.getType();
     }
 
     public TenantId getTenantId() {
@@ -62,6 +64,7 @@ public class Device extends SearchTextBased<DeviceId> {
         this.customerId = customerId;
     }
 
+    @Override
     public String getName() {
         return name;
     }
@@ -70,60 +73,17 @@ public class Device extends SearchTextBased<DeviceId> {
         this.name = name;
     }
 
-    public JsonNode getAdditionalInfo() {
-        return additionalInfo;
+    public String getType() {
+        return type;
     }
 
-    public void setAdditionalInfo(JsonNode additionalInfo) {
-        this.additionalInfo = additionalInfo;
+    public void setType(String type) {
+        this.type = type;
     }
-    
+
     @Override
     public String getSearchText() {
-        return name;
-    }
-
-    @Override
-    public int hashCode() {
-        final int prime = 31;
-        int result = super.hashCode();
-        result = prime * result + ((additionalInfo == null) ? 0 : additionalInfo.hashCode());
-        result = prime * result + ((customerId == null) ? 0 : customerId.hashCode());
-        result = prime * result + ((name == null) ? 0 : name.hashCode());
-        result = prime * result + ((tenantId == null) ? 0 : tenantId.hashCode());
-        return result;
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj)
-            return true;
-        if (!super.equals(obj))
-            return false;
-        if (getClass() != obj.getClass())
-            return false;
-        Device other = (Device) obj;
-        if (additionalInfo == null) {
-            if (other.additionalInfo != null)
-                return false;
-        } else if (!additionalInfo.equals(other.additionalInfo))
-            return false;
-        if (customerId == null) {
-            if (other.customerId != null)
-                return false;
-        } else if (!customerId.equals(other.customerId))
-            return false;
-        if (name == null) {
-            if (other.name != null)
-                return false;
-        } else if (!name.equals(other.name))
-            return false;
-        if (tenantId == null) {
-            if (other.tenantId != null)
-                return false;
-        } else if (!tenantId.equals(other.tenantId))
-            return false;
-        return true;
+        return getName();
     }
 
     @Override
@@ -135,8 +95,10 @@ public class Device extends SearchTextBased<DeviceId> {
         builder.append(customerId);
         builder.append(", name=");
         builder.append(name);
+        builder.append(", type=");
+        builder.append(type);
         builder.append(", additionalInfo=");
-        builder.append(additionalInfo);
+        builder.append(getAdditionalInfo());
         builder.append(", createdTime=");
         builder.append(createdTime);
         builder.append(", id=");

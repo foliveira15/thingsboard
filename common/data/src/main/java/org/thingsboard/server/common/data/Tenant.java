@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,18 +15,21 @@
  */
 package org.thingsboard.server.common.data;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.EqualsAndHashCode;
 import org.thingsboard.server.common.data.id.TenantId;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
-public class Tenant extends ContactBased<TenantId>{
+@EqualsAndHashCode(callSuper = true)
+public class Tenant extends ContactBased<TenantId> implements HasName, HasTenantId {
 
     private static final long serialVersionUID = 8057243243859922101L;
     
     private String title;
     private String region;
-    private JsonNode additionalInfo;
-    
+
     public Tenant() {
         super();
     }
@@ -39,7 +42,6 @@ public class Tenant extends ContactBased<TenantId>{
         super(tenant);
         this.title = tenant.getTitle();
         this.region = tenant.getRegion();
-        this.additionalInfo = tenant.getAdditionalInfo();
     }
 
     public String getTitle() {
@@ -50,6 +52,18 @@ public class Tenant extends ContactBased<TenantId>{
         this.title = title;
     }
 
+    @Override
+    @JsonIgnore
+    public TenantId getTenantId() {
+        return getId();
+    }
+
+    @Override
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public String getName() {
+        return title;
+    }
+
     public String getRegion() {
         return region;
     }
@@ -58,54 +72,9 @@ public class Tenant extends ContactBased<TenantId>{
         this.region = region;
     }
 
-    public JsonNode getAdditionalInfo() {
-        return additionalInfo;
-    }
-
-    public void setAdditionalInfo(JsonNode additionalInfo) {
-        this.additionalInfo = additionalInfo;
-    }
-    
     @Override
     public String getSearchText() {
-        return title;
-    }
-
-    @Override
-    public int hashCode() {
-        final int prime = 31;
-        int result = super.hashCode();
-        result = prime * result + ((additionalInfo == null) ? 0 : additionalInfo.hashCode());
-        result = prime * result + ((region == null) ? 0 : region.hashCode());
-        result = prime * result + ((title == null) ? 0 : title.hashCode());
-        return result;
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj)
-            return true;
-        if (!super.equals(obj))
-            return false;
-        if (getClass() != obj.getClass())
-            return false;
-        Tenant other = (Tenant) obj;
-        if (additionalInfo == null) {
-            if (other.additionalInfo != null)
-                return false;
-        } else if (!additionalInfo.equals(other.additionalInfo))
-            return false;
-        if (region == null) {
-            if (other.region != null)
-                return false;
-        } else if (!region.equals(other.region))
-            return false;
-        if (title == null) {
-            if (other.title != null)
-                return false;
-        } else if (!title.equals(other.title))
-            return false;
-        return true;
+        return getTitle();
     }
 
     @Override
@@ -116,7 +85,7 @@ public class Tenant extends ContactBased<TenantId>{
         builder.append(", region=");
         builder.append(region);
         builder.append(", additionalInfo=");
-        builder.append(additionalInfo);
+        builder.append(getAdditionalInfo());
         builder.append(", country=");
         builder.append(country);
         builder.append(", state=");

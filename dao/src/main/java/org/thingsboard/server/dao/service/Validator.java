@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,28 @@
  */
 package org.thingsboard.server.dao.service;
 
+import org.thingsboard.server.common.data.id.EntityId;
 import org.thingsboard.server.common.data.id.UUIDBased;
-import org.thingsboard.server.common.data.page.TextPageLink;
+import org.thingsboard.server.common.data.page.BasePageLink;
 import org.thingsboard.server.dao.exception.IncorrectParameterException;
 
+import java.util.List;
 import java.util.UUID;
 
 public class Validator {
+
+    /**
+     * This method validate <code>EntityId</code> entity id. If entity id is invalid than throw
+     * <code>IncorrectParameterException</code> exception
+     *
+     * @param entityId          the entityId
+     * @param errorMessage the error message for exception
+     */
+    public static void validateEntityId(EntityId entityId, String errorMessage) {
+        if (entityId == null || entityId.getId() == null) {
+            throw new IncorrectParameterException(errorMessage);
+        }
+    }
 
     /**
      * This method validate <code>String</code> string. If string is invalid than throw
@@ -78,18 +93,31 @@ public class Validator {
     }
 
     /**
+     * This method validate list of <code>UUIDBased</code> ids. If at least one of the ids is null than throw
+     * <code>IncorrectParameterException</code> exception
+     *
+     * @param ids          the list of ids
+     * @param errorMessage the error message for exception
+     */
+    public static void validateIds(List<? extends UUIDBased> ids, String errorMessage) {
+        if (ids == null || ids.isEmpty()) {
+            throw new IncorrectParameterException(errorMessage);
+        } else {
+            for (UUIDBased id : ids) {
+                validateId(id, errorMessage);
+            }
+        }
+    }
+
+    /**
      * This method validate <code>PageLink</code> page link. If pageLink is invalid than throw
      * <code>IncorrectParameterException</code> exception
      *
      * @param pageLink     the page link
      * @param errorMessage the error message for exception
      */
-    public static void validatePageLink(TextPageLink pageLink, String errorMessage) {
-        if (pageLink == null) {
-            throw new IncorrectParameterException(errorMessage);
-        } else if (pageLink.getLimit() < 1) {
-            throw new IncorrectParameterException(errorMessage);
-        } else if (pageLink.getIdOffset() != null && pageLink.getIdOffset().version() != 1) {
+    public static void validatePageLink(BasePageLink pageLink, String errorMessage) {
+        if (pageLink == null || pageLink.getLimit() < 1 || (pageLink.getIdOffset() != null && pageLink.getIdOffset().version() != 1)) {
             throw new IncorrectParameterException(errorMessage);
         }
     }

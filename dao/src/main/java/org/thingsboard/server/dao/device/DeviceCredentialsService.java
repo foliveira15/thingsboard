@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,25 +15,19 @@
  */
 package org.thingsboard.server.dao.device;
 
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.thingsboard.server.common.data.id.DeviceId;
+import org.thingsboard.server.common.data.id.TenantId;
 import org.thingsboard.server.common.data.security.DeviceCredentials;
-
-import static org.thingsboard.server.common.data.CacheConstants.DEVICE_CREDENTIALS_CACHE;
 
 public interface DeviceCredentialsService {
 
-    DeviceCredentials findDeviceCredentialsByDeviceId(DeviceId deviceId);
+    DeviceCredentials findDeviceCredentialsByDeviceId(TenantId tenantId, DeviceId deviceId);
 
-    @Cacheable(cacheNames = DEVICE_CREDENTIALS_CACHE, unless="#result == null")
     DeviceCredentials findDeviceCredentialsByCredentialsId(String credentialsId);
 
-    @CacheEvict(cacheNames = DEVICE_CREDENTIALS_CACHE, keyGenerator="previousDeviceCredentialsId", beforeInvocation = true)
-    DeviceCredentials updateDeviceCredentials(DeviceCredentials deviceCredentials);
+    DeviceCredentials updateDeviceCredentials(TenantId tenantId, DeviceCredentials deviceCredentials);
 
-    DeviceCredentials createDeviceCredentials(DeviceCredentials deviceCredentials);
+    DeviceCredentials createDeviceCredentials(TenantId tenantId, DeviceCredentials deviceCredentials);
 
-    @CacheEvict(cacheNames = DEVICE_CREDENTIALS_CACHE, key="#deviceCredentials.credentialsId")
-    void deleteDeviceCredentials(DeviceCredentials deviceCredentials);
+    void deleteDeviceCredentials(TenantId tenantId, DeviceCredentials deviceCredentials);
 }

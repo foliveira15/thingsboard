@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,18 +17,30 @@
 
 import addUserTemplate from './add-user.tpl.html';
 import userCard from './user-card.tpl.html';
+import activationLinkDialogTemplate from './activation-link.dialog.tpl.html';
 
 /* eslint-enable import/no-unresolved, import/default */
 
 
 /*@ngInject*/
-export default function UserController(userService, toast, $scope, $controller, $state, $stateParams, $translate) {
+export default function UserController(userService, toast, $scope, $mdDialog, $document, $controller, $state, $stateParams, $translate, types) {
 
     var tenantId = $stateParams.tenantId;
     var customerId = $stateParams.customerId;
     var usersType = $state.$current.data.usersType;
 
     var userActionsList = [
+        {
+            onAction: function ($event, item) {
+                loginAsUser(item);
+            },
+            name: function() { return $translate.instant('login.login') },
+            details: function() { return $translate.instant(usersType === 'tenant' ? 'user.login-as-tenant-admin' : 'user.login-as-customer-user') },
+            icon: "login",
+            isEnabled: function() {
+                return userService.isUserTokenAccessEnabled();
+            }
+        },
         {
             onAction: function ($event, item) {
                 vm.grid.deleteItem($event, item);
@@ -40,6 +52,8 @@ export default function UserController(userService, toast, $scope, $controller, 
     ];
 
     var vm = this;
+
+    vm.types = types;
 
     vm.userGridConfig = {
         deleteItemTitleFunc: deleteUserTitle,
@@ -58,6 +72,7 @@ export default function UserController(userService, toast, $scope, $controller, 
         onGridInited: gridInited,
 
         addItemTemplateUrl: addUserTemplate,
+        addItemController: 'AddUserController',
 
         addItemText: function() { return $translate.instant('user.add-user-text') },
         noItemsText: function() { return $translate.instant('user.no-users-text') },
@@ -72,7 +87,9 @@ export default function UserController(userService, toast, $scope, $controller, 
         vm.userGridConfig.topIndex = $stateParams.topIndex;
     }
 
+    vm.displayActivationLink = displayActivationLink;
     vm.resendActivation = resendActivation;
+    vm.loginAsUser = loginAsUser;
 
     initController();
 
@@ -87,7 +104,10 @@ export default function UserController(userService, toast, $scope, $controller, 
             };
             saveUserFunction = function (user) {
                 user.authority = "TENANT_ADMIN";
-                user.tenantId = {id: tenantId};
+                user.tenantId = {
+                    entityType: types.entityType.tenant,
+                    id: tenantId
+                };
                 return userService.saveUser(user);
             };
             refreshUsersParamsFunction = function () {
@@ -100,7 +120,10 @@ export default function UserController(userService, toast, $scope, $controller, 
             };
             saveUserFunction = function (user) {
                 user.authority = "CUSTOMER_USER";
-                user.customerId = {id: customerId};
+                user.customerId = {
+                    entityType: types.entityType.customer,
+                    id: customerId
+                };
                 return userService.saveUser(user);
             };
             refreshUsersParamsFunction = function () {
@@ -145,9 +168,36 @@ export default function UserController(userService, toast, $scope, $controller, 
         return userService.deleteUser(userId);
     }
 
+    function displayActivationLink(event, user) {
+        userService.getActivationLink(user.id.id).then(
+            function success(activationLink) {
+                openActivationLinkDialog(event, activationLink);
+            }
+        );
+    }
+
+    function openActivationLinkDialog(event, activationLink) {
+        $mdDialog.show({
+            controller: 'ActivationLinkDialogController',
+            controllerAs: 'vm',
+            templateUrl: activationLinkDialogTemplate,
+            locals: {
+                activationLink: activationLink
+            },
+            parent: angular.element($document[0].body),
+            fullscreen: true,
+            multiple: true,
+            targetEvent: event
+        });
+    }
+
     function resendActivation(user) {
         userService.sendActivationEmail(user.email).then(function success() {
             toast.showSuccess($translate.instant('user.activation-email-sent-message'));
         });
+    }
+
+    function loginAsUser(user) {
+        userService.loginAsUser(user.id.id);
     }
 }

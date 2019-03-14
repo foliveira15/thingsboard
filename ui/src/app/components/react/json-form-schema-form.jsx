@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,8 @@ import { utils } from 'react-schema-form';
 import ThingsboardArray from './json-form-array.jsx';
 import ThingsboardJavaScript from './json-form-javascript.jsx';
 import ThingsboardJson from './json-form-json.jsx';
+import ThingsboardHtml from './json-form-html.jsx';
+import ThingsboardCss from './json-form-css.jsx';
 import ThingsboardColor from './json-form-color.jsx'
 import ThingsboardRcSelect from './json-form-rc-select.jsx';
 import ThingsboardNumber from './json-form-number.jsx';
@@ -52,6 +54,8 @@ class ThingsboardSchemaForm extends React.Component {
             'array': ThingsboardArray,
             'javascript': ThingsboardJavaScript,
             'json': ThingsboardJson,
+            'html': ThingsboardHtml,
+            'css': ThingsboardCss,
             'color': ThingsboardColor,
             'rc-select': ThingsboardRcSelect,
             'fieldset': ThingsboardFieldSet
@@ -59,11 +63,15 @@ class ThingsboardSchemaForm extends React.Component {
 
         this.onChange = this.onChange.bind(this);
         this.onColorClick = this.onColorClick.bind(this);
+        this.hasConditions = false;
     }
 
     onChange(key, val) {
         //console.log('SchemaForm.onChange', key, val);
         this.props.onModelChange(key, val);
+        if (this.hasConditions) {
+            this.forceUpdate();
+        }
     }
 
     onColorClick(event, key, val) {
@@ -77,8 +85,11 @@ class ThingsboardSchemaForm extends React.Component {
             console.log('Invalid field: \"' + form.key[0] + '\"!');
             return null;
         }
-        if(form.condition && eval(form.condition) === false) {
-            return null;
+        if(form.condition) {
+            this.hasConditions = true;
+            if (eval(form.condition) === false) {
+                return null;
+            }
         }
         return <Field model={model} form={form} key={index} onChange={onChange} onColorClick={onColorClick} mapper={mapper} builder={this.builder}/>
     }

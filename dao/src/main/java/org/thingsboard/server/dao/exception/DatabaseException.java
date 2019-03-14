@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,22 +17,22 @@ package org.thingsboard.server.dao.exception;
 
 public class DatabaseException extends RuntimeException {
 
-	private static final long serialVersionUID = 3463762014441887103L;
+    private static final long serialVersionUID = 3463762014441887103L;
 
-	public DatabaseException() {
-		super();
-	}
+    public DatabaseException() {
+        super();
+    }
 
-	public DatabaseException(String message, Throwable cause) {
-		super(message, cause);
-	}
+    public DatabaseException(String message, Throwable cause) {
+        super(message, cause);
+    }
 
-	public DatabaseException(String message) {
-		super(message);
-	}
+    public DatabaseException(String message) {
+        super(message);
+    }
 
-	public DatabaseException(Throwable cause) {
-		super(cause);
-	}
+    public DatabaseException(Throwable cause) {
+        super(cause);
+    }
 
 }

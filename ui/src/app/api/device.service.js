@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,35 +20,34 @@ export default angular.module('thingsboard.api.device', [thingsboardTypes])
     .name;
 
 /*@ngInject*/
-function DeviceService($http, $q, $filter, telemetryWebsocketService, types) {
-
-
-    var deviceAttributesSubscriptionMap = {};
+function DeviceService($http, $q, $window, userService, attributeService, customerService, types) {
 
     var service = {
         assignDeviceToCustomer: assignDeviceToCustomer,
         deleteDevice: deleteDevice,
         getCustomerDevices: getCustomerDevices,
         getDevice: getDevice,
+        getDevices: getDevices,
         getDeviceCredentials: getDeviceCredentials,
-        getDeviceKeys: getDeviceKeys,
-        getDeviceTimeseriesValues: getDeviceTimeseriesValues,
         getTenantDevices: getTenantDevices,
         saveDevice: saveDevice,
         saveDeviceCredentials: saveDeviceCredentials,
         unassignDeviceFromCustomer: unassignDeviceFromCustomer,
+        makeDevicePublic: makeDevicePublic,
         getDeviceAttributes: getDeviceAttributes,
         subscribeForDeviceAttributes: subscribeForDeviceAttributes,
         unsubscribeForDeviceAttributes: unsubscribeForDeviceAttributes,
         saveDeviceAttributes: saveDeviceAttributes,
         deleteDeviceAttributes: deleteDeviceAttributes,
         sendOneWayRpcCommand: sendOneWayRpcCommand,
-        sendTwoWayRpcCommand: sendTwoWayRpcCommand
+        sendTwoWayRpcCommand: sendTwoWayRpcCommand,
+        findByQuery: findByQuery,
+        getDeviceTypes: getDeviceTypes
     }
 
     return service;
 
-    function getTenantDevices(pageLink) {
+    function getTenantDevices(pageLink, applyCustomersInfo, config, type) {
         var deferred = $q.defer();
         var url = '/api/tenant/devices?limit=' + pageLink.limit;
         if (angular.isDefined(pageLink.textSearch)) {
@@ -60,15 +59,30 @@ function DeviceService($http, $q, $filter, telemetryWebsocketService, types) {
         if (angular.isDefined(pageLink.textOffset)) {
             url += '&textOffset=' + pageLink.textOffset;
         }
-        $http.get(url, null).then(function success(response) {
-            deferred.resolve(response.data);
+        if (angular.isDefined(type) && type.length) {
+            url += '&type=' + type;
+        }
+        $http.get(url, config).then(function success(response) {
+            if (applyCustomersInfo) {
+                customerService.applyAssignedCustomersInfo(response.data.data).then(
+                    function success(data) {
+                        response.data.data = data;
+                        deferred.resolve(response.data);
+                    },
+                    function fail() {
+                        deferred.reject();
+                    }
+                );
+            } else {
+                deferred.resolve(response.data);
+            }
         }, function fail() {
             deferred.reject();
         });
         return deferred.promise;
     }
 
-    function getCustomerDevices(customerId, pageLink) {
+    function getCustomerDevices(customerId, pageLink, applyCustomersInfo, config, type) {
         var deferred = $q.defer();
         var url = '/api/customer/' + customerId + '/devices?limit=' + pageLink.limit;
         if (angular.isDefined(pageLink.textSearch)) {
@@ -80,19 +94,65 @@ function DeviceService($http, $q, $filter, telemetryWebsocketService, types) {
         if (angular.isDefined(pageLink.textOffset)) {
             url += '&textOffset=' + pageLink.textOffset;
         }
-        $http.get(url, null).then(function success(response) {
-            deferred.resolve(response.data);
+        if (angular.isDefined(type) && type.length) {
+            url += '&type=' + type;
+        }
+        $http.get(url, config).then(function success(response) {
+            if (applyCustomersInfo) {
+                customerService.applyAssignedCustomerInfo(response.data.data, customerId).then(
+                    function success(data) {
+                        response.data.data = data;
+                        deferred.resolve(response.data);
+                    },
+                    function fail() {
+                        deferred.reject();
+                    }
+                );
+            } else {
+                deferred.resolve(response.data);
+            }
         }, function fail() {
             deferred.reject();
+        });
+
+        return deferred.promise;
+    }
+
+    function getDevice(deviceId, ignoreErrors, config) {
+        var deferred = $q.defer();
+        var url = '/api/device/' + deviceId;
+        if (!config) {
+            config = {};
+        }
+        config = Object.assign(config, { ignoreErrors: ignoreErrors });
+        $http.get(url, config).then(function success(response) {
+            deferred.resolve(response.data);
+        }, function fail(response) {
+            deferred.reject(response.data);
         });
         return deferred.promise;
     }
 
-    function getDevice(deviceId) {
+    function getDevices(deviceIds, config) {
         var deferred = $q.defer();
-        var url = '/api/device/' + deviceId;
-        $http.get(url, null).then(function success(response) {
-            deferred.resolve(response.data);
+        var ids = '';
+        for (var i=0;i<deviceIds.length;i++) {
+            if (i>0) {
+                ids += ',';
+            }
+            ids += deviceIds[i];
+        }
+        var url = '/api/devices?deviceIds=' + ids;
+        $http.get(url, config).then(function success(response) {
+            var devices = response.data;
+            devices.sort(function (device1, device2) {
+               var id1 =  device1.id.id;
+               var id2 =  device2.id.id;
+               var index1 = deviceIds.indexOf(id1);
+               var index2 = deviceIds.indexOf(id2);
+               return index1 - index2;
+            });
+            deferred.resolve(devices);
         }, function fail(response) {
             deferred.reject(response.data);
         });
@@ -104,8 +164,8 @@ function DeviceService($http, $q, $filter, telemetryWebsocketService, types) {
         var url = '/api/device';
         $http.post(url, device).then(function success(response) {
             deferred.resolve(response.data);
-        }, function fail(response) {
-            deferred.reject(response.data);
+        }, function fail() {
+            deferred.reject();
         });
         return deferred.promise;
     }
@@ -115,20 +175,33 @@ function DeviceService($http, $q, $filter, telemetryWebsocketService, types) {
         var url = '/api/device/' + deviceId;
         $http.delete(url).then(function success() {
             deferred.resolve();
-        }, function fail(response) {
-            deferred.reject(response.data);
+        }, function fail() {
+            deferred.reject();
         });
         return deferred.promise;
     }
 
-    function getDeviceCredentials(deviceId) {
+    function getDeviceCredentials(deviceId, sync) {
         var deferred = $q.defer();
         var url = '/api/device/' + deviceId + '/credentials';
-        $http.get(url, null).then(function success(response) {
-            deferred.resolve(response.data);
-        }, function fail(response) {
-            deferred.reject(response.data);
-        });
+        if (sync) {
+            var request = new $window.XMLHttpRequest();
+            request.open('GET', url, false);
+            request.setRequestHeader("Accept", "application/json, text/plain, */*");
+            userService.setAuthorizationRequestHeader(request);
+            request.send(null);
+            if (request.status === 200) {
+                deferred.resolve(angular.fromJson(request.responseText));
+            } else {
+                deferred.reject();
+            }
+        } else {
+            $http.get(url, null).then(function success(response) {
+                deferred.resolve(response.data);
+            }, function fail() {
+                deferred.reject();
+            });
+        }
         return deferred.promise;
     }
 
@@ -137,8 +210,8 @@ function DeviceService($http, $q, $filter, telemetryWebsocketService, types) {
         var url = '/api/device/credentials';
         $http.post(url, deviceCredentials).then(function success(response) {
             deferred.resolve(response.data);
-        }, function fail(response) {
-            deferred.reject(response.data);
+        }, function fail() {
+            deferred.reject();
         });
         return deferred.promise;
     }
@@ -146,10 +219,10 @@ function DeviceService($http, $q, $filter, telemetryWebsocketService, types) {
     function assignDeviceToCustomer(customerId, deviceId) {
         var deferred = $q.defer();
         var url = '/api/customer/' + customerId + '/device/' + deviceId;
-        $http.post(url, null).then(function success() {
-            deferred.resolve();
-        }, function fail(response) {
-            deferred.reject(response.data);
+        $http.post(url, null).then(function success(response) {
+            deferred.resolve(response.data);
+        }, function fail() {
+            deferred.reject();
         });
         return deferred.promise;
     }
@@ -157,203 +230,43 @@ function DeviceService($http, $q, $filter, telemetryWebsocketService, types) {
     function unassignDeviceFromCustomer(deviceId) {
         var deferred = $q.defer();
         var url = '/api/customer/device/' + deviceId;
-        $http.delete(url).then(function success() {
-            deferred.resolve();
-        }, function fail(response) {
-            deferred.reject(response.data);
-        });
-        return deferred.promise;
-    }
-
-    function getDeviceKeys(deviceId, query, type) {
-        var deferred = $q.defer();
-        var url = '/api/plugins/telemetry/' + deviceId + '/keys/';
-        if (type === types.dataKeyType.timeseries) {
-            url += 'timeseries';
-        } else if (type === types.dataKeyType.attribute) {
-            url += 'attributes';
-        }
-        $http.get(url, null).then(function success(response) {
-            var result = [];
-            if (response.data) {
-                if (query) {
-                    var dataKeys = response.data;
-                    var lowercaseQuery = angular.lowercase(query);
-                    for (var i in dataKeys) {
-                        if (angular.lowercase(dataKeys[i]).indexOf(lowercaseQuery) === 0) {
-                            result.push(dataKeys[i]);
-                        }
-                    }
-                } else {
-                    result = response.data;
-                }
-            }
-            deferred.resolve(result);
-        }, function fail(response) {
-            deferred.reject(response.data);
-        });
-        return deferred.promise;
-    }
-
-    function getDeviceTimeseriesValues(deviceId, keys, startTs, endTs, limit) {
-        var deferred = $q.defer();
-        var url = '/api/plugins/telemetry/' + deviceId + '/values/timeseries';
-        url += '?keys=' + keys;
-        url += '&startTs=' + startTs;
-        url += '&endTs=' + endTs;
-        if (angular.isDefined(limit)) {
-            url += '&limit=' + limit;
-        }
-        $http.get(url, null).then(function success(response) {
+        $http.delete(url).then(function success(response) {
             deferred.resolve(response.data);
-        }, function fail(response) {
-            deferred.reject(response.data);
-        });
-        return deferred.promise;
-    }
-
-    function processDeviceAttributes(attributes, query, deferred, successCallback, update) {
-        attributes = $filter('orderBy')(attributes, query.order);
-        if (query.search != null) {
-            attributes = $filter('filter')(attributes, {key: query.search});
-        }
-        var responseData = {
-            count: attributes.length
-        }
-        var startIndex = query.limit * (query.page - 1);
-        responseData.data = attributes.slice(startIndex, startIndex + query.limit);
-        successCallback(responseData, update);
-        if (deferred) {
-            deferred.resolve();
-        }
-    }
-
-    function getDeviceAttributes(deviceId, attributeScope, query, successCallback) {
-        var deferred = $q.defer();
-        var subscriptionId = deviceId + attributeScope;
-        var das = deviceAttributesSubscriptionMap[subscriptionId];
-        if (das) {
-            if (das.attributes) {
-                processDeviceAttributes(das.attributes, query, deferred, successCallback);
-                das.subscriptionCallback = function(attributes) {
-                    processDeviceAttributes(attributes, query, null, successCallback, true);
-                }
-            } else {
-                das.subscriptionCallback = function(attributes) {
-                    processDeviceAttributes(attributes, query, deferred, successCallback);
-                    das.subscriptionCallback = function(attributes) {
-                        processDeviceAttributes(attributes, query, null, successCallback, true);
-                    }
-                }
-            }
-        } else {
-            var url = '/api/plugins/telemetry/' + deviceId + '/values/attributes/' + attributeScope;
-            $http.get(url, null).then(function success(response) {
-                processDeviceAttributes(response.data, query, deferred, successCallback);
-            }, function fail() {
-                deferred.reject();
-            });
-        }
-        return deferred;
-    }
-
-    function onSubscriptionData(data, subscriptionId) {
-        var deviceAttributesSubscription = deviceAttributesSubscriptionMap[subscriptionId];
-        if (deviceAttributesSubscription) {
-            if (!deviceAttributesSubscription.attributes) {
-                deviceAttributesSubscription.attributes = [];
-                deviceAttributesSubscription.keys = {};
-            }
-            var attributes = deviceAttributesSubscription.attributes;
-            var keys = deviceAttributesSubscription.keys;
-            for (var key in data) {
-                var index = keys[key];
-                var attribute;
-                if (index > -1) {
-                    attribute = attributes[index];
-                } else {
-                    attribute = {
-                        key: key
-                    };
-                    index = attributes.push(attribute)-1;
-                    keys[key] = index;
-                }
-                var attrData = data[key][0];
-                attribute.lastUpdateTs = attrData[0];
-                attribute.value = attrData[1];
-            }
-            if (deviceAttributesSubscription.subscriptionCallback) {
-                deviceAttributesSubscription.subscriptionCallback(attributes);
-            }
-        }
-    }
-
-    function subscribeForDeviceAttributes(deviceId, attributeScope) {
-        var subscriptionId = deviceId + attributeScope;
-        var deviceAttributesSubscription = deviceAttributesSubscriptionMap[subscriptionId];
-        if (!deviceAttributesSubscription) {
-            var subscriptionCommand = {
-                deviceId: deviceId
-            };
-
-            var type = attributeScope === types.latestTelemetry.value ?
-                types.dataKeyType.timeseries : types.dataKeyType.attribute;
-
-            var subscriber = {
-                subscriptionCommand: subscriptionCommand,
-                type: type,
-                onData: function (data) {
-                    onSubscriptionData(data, subscriptionId);
-                }
-            };
-            telemetryWebsocketService.subscribe(subscriber);
-            deviceAttributesSubscription = {
-                subscriber: subscriber,
-                attributes: null
-            }
-            deviceAttributesSubscriptionMap[subscriptionId] = deviceAttributesSubscription;
-        }
-        return subscriptionId;
-    }
-    function unsubscribeForDeviceAttributes(subscriptionId) {
-        var deviceAttributesSubscription = deviceAttributesSubscriptionMap[subscriptionId];
-        if (deviceAttributesSubscription) {
-            telemetryWebsocketService.unsubscribe(deviceAttributesSubscription.subscriber);
-            delete deviceAttributesSubscriptionMap[subscriptionId];
-        }
-    }
-
-    function saveDeviceAttributes(deviceId, attributeScope, attributes) {
-        var deferred = $q.defer();
-        var attributesData = {};
-        for (var a in attributes) {
-            attributesData[attributes[a].key] = attributes[a].value;
-        }
-        var url = '/api/plugins/telemetry/' + deviceId + '/' + attributeScope;
-        $http.post(url, attributesData).then(function success(response) {
-            deferred.resolve(response.data);
-        }, function fail(response) {
-            deferred.reject(response.data);
-        });
-        return deferred.promise;
-    }
-
-    function deleteDeviceAttributes(deviceId, attributeScope, attributes) {
-        var deferred = $q.defer();
-        var keys = '';
-        for (var i = 0; i < attributes.length; i++) {
-            if (i > 0) {
-                keys += ',';
-            }
-            keys += attributes[i].key;
-        }
-        var url = '/api/plugins/telemetry/' + deviceId + '/' + attributeScope + '?keys=' + keys;
-        $http.delete(url).then(function success() {
-            deferred.resolve();
         }, function fail() {
             deferred.reject();
         });
         return deferred.promise;
+    }
+
+    function makeDevicePublic(deviceId) {
+        var deferred = $q.defer();
+        var url = '/api/customer/public/device/' + deviceId;
+        $http.post(url, null).then(function success(response) {
+            deferred.resolve(response.data);
+        }, function fail() {
+            deferred.reject();
+        });
+        return deferred.promise;
+    }
+
+    function getDeviceAttributes(deviceId, attributeScope, query, successCallback, config) {
+        return attributeService.getEntityAttributes(types.entityType.device, deviceId, attributeScope, query, successCallback, config);
+    }
+
+    function subscribeForDeviceAttributes(deviceId, attributeScope) {
+        return attributeService.subscribeForEntityAttributes(types.entityType.device, deviceId, attributeScope);
+    }
+
+    function unsubscribeForDeviceAttributes(subscriptionId) {
+        attributeService.unsubscribeForEntityAttributes(subscriptionId);
+    }
+
+    function saveDeviceAttributes(deviceId, attributeScope, attributes) {
+        return attributeService.saveEntityAttributes(types.entityType.device, deviceId, attributeScope, attributes);
+    }
+
+    function deleteDeviceAttributes(deviceId, attributeScope, attributes) {
+        return attributeService.deleteEntityAttributes(types.entityType.device, deviceId, attributeScope, attributes);
     }
 
     function sendOneWayRpcCommand(deviceId, requestBody) {
@@ -374,6 +287,32 @@ function DeviceService($http, $q, $filter, telemetryWebsocketService, types) {
             deferred.resolve(response.data);
         }, function fail(rejection) {
             deferred.reject(rejection);
+        });
+        return deferred.promise;
+    }
+
+    function findByQuery(query, ignoreErrors, config) {
+        var deferred = $q.defer();
+        var url = '/api/devices';
+        if (!config) {
+            config = {};
+        }
+        config = Object.assign(config, { ignoreErrors: ignoreErrors });
+        $http.post(url, query, config).then(function success(response) {
+            deferred.resolve(response.data);
+        }, function fail() {
+            deferred.reject();
+        });
+        return deferred.promise;
+    }
+
+    function getDeviceTypes(config) {
+        var deferred = $q.defer();
+        var url = '/api/device/types';
+        $http.get(url, config).then(function success(response) {
+            deferred.resolve(response.data);
+        }, function fail() {
+            deferred.reject();
         });
         return deferred.promise;
     }

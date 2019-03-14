@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import $ from 'jquery';
 
 /* eslint-disable import/no-unresolved, import/default */
 
@@ -20,12 +21,13 @@ import logoSvg from '../../svg/logo_title_white.svg';
 
 /* eslint-enable import/no-unresolved, import/default */
 
-/*@ngInject*/
-export default function HomeController(loginService, userService, deviceService, Fullscreen, $scope, $rootScope, $document, $state,
-                                       $log, $mdMedia, $translate) {
+/* eslint-disable angular/angularelement */
 
-    var isShowSidenav = false,
-        dashboardUser = userService.getCurrentUser();
+/*@ngInject*/
+export default function HomeController(types, loginService, userService, deviceService, Fullscreen, $scope, $element, $rootScope, $document, $state,
+                                       $window, $log, $mdMedia, $animate, $timeout) {
+
+    var siteSideNav = $('.tb-site-sidenav', $element);
 
     var vm = this;
 
@@ -35,40 +37,88 @@ export default function HomeController(loginService, userService, deviceService,
     if (angular.isUndefined($rootScope.searchConfig)) {
         $rootScope.searchConfig = {
             searchEnabled: false,
+            searchByEntitySubtype: false,
+            searchEntityType: null,
             showSearch: false,
-            searchText: ""
+            searchText: "",
+            searchEntitySubtype: ""
         };
     }
 
-    vm.authorityName = authorityName;
+    vm.isShowSidenav = false;
+    vm.isLockSidenav = false;
+
     vm.displaySearchMode = displaySearchMode;
-    vm.lockSidenav = lockSidenav;
-    vm.logout = logout;
-    vm.openProfile = openProfile;
+    vm.displayEntitySubtypeSearch = displayEntitySubtypeSearch;
     vm.openSidenav = openSidenav;
-    vm.showSidenav = showSidenav;
+    vm.goBack = goBack;
     vm.searchTextUpdated = searchTextUpdated;
     vm.sidenavClicked = sidenavClicked;
     vm.toggleFullscreen = toggleFullscreen;
-    vm.userDisplayName = userDisplayName;
+    vm.openSearch = openSearch;
+    vm.closeSearch = closeSearch;
 
     $scope.$on('$stateChangeSuccess', function (evt, to, toParams, from) {
+        watchEntitySubtype(false);
         if (angular.isDefined(to.data.searchEnabled)) {
             $scope.searchConfig.searchEnabled = to.data.searchEnabled;
+            $scope.searchConfig.searchByEntitySubtype = to.data.searchByEntitySubtype;
+            $scope.searchConfig.searchEntityType = to.data.searchEntityType;
             if ($scope.searchConfig.searchEnabled === false || to.name !== from.name) {
                 $scope.searchConfig.showSearch = false;
                 $scope.searchConfig.searchText = "";
+                $scope.searchConfig.searchEntitySubtype = "";
             }
         } else {
             $scope.searchConfig.searchEnabled = false;
+            $scope.searchConfig.searchByEntitySubtype = false;
+            $scope.searchConfig.searchEntityType = null;
             $scope.searchConfig.showSearch = false;
             $scope.searchConfig.searchText = "";
+            $scope.searchConfig.searchEntitySubtype = "";
+        }
+        watchEntitySubtype($scope.searchConfig.searchByEntitySubtype);
+    });
+
+    vm.isGtSm = $mdMedia('gt-sm');
+    if (vm.isGtSm) {
+        vm.isLockSidenav = true;
+        $animate.enabled(siteSideNav, false);
+    }
+
+    $scope.$watch(function() { return $mdMedia('gt-sm'); }, function(isGtSm) {
+        vm.isGtSm = isGtSm;
+        vm.isLockSidenav = isGtSm;
+        vm.isShowSidenav = isGtSm;
+        if (!isGtSm) {
+            $timeout(function() {
+                $animate.enabled(siteSideNav, true);
+            }, 0, false);
+        } else {
+            $animate.enabled(siteSideNav, false);
         }
     });
+
+    function watchEntitySubtype(enableWatch) {
+        if ($scope.entitySubtypeWatch) {
+            $scope.entitySubtypeWatch();
+        }
+        if (enableWatch) {
+            $scope.entitySubtypeWatch = $scope.$watch('searchConfig.searchEntitySubtype', function (newVal, prevVal) {
+                if (!angular.equals(newVal, prevVal)) {
+                    $scope.$broadcast('searchEntitySubtypeUpdated');
+                }
+            });
+        }
+    }
 
     function displaySearchMode() {
         return $scope.searchConfig.searchEnabled &&
             $scope.searchConfig.showSearch;
+    }
+
+    function displayEntitySubtypeSearch() {
+        return $scope.searchConfig.searchByEntitySubtype && vm.isGtSm;
     }
 
     function toggleFullscreen() {
@@ -79,74 +129,47 @@ export default function HomeController(loginService, userService, deviceService,
         }
     }
 
+    function openSearch() {
+        if ($scope.searchConfig.searchEnabled) {
+            $scope.searchConfig.showSearch = true;
+            $timeout(() => {
+                angular.element('#tb-search-text-input', $element).focus();
+            });
+        }
+    }
+
+    function closeSearch() {
+        if ($scope.searchConfig.searchEnabled) {
+            $scope.searchConfig.showSearch = false;
+            if ($scope.searchConfig.searchText.length) {
+                $scope.searchConfig.searchText = '';
+                searchTextUpdated();
+            }
+        }
+    }
+
     function searchTextUpdated() {
         $scope.$broadcast('searchTextUpdated');
     }
 
-    function authorityName() {
-        var name = "user.anonymous";
-        if (dashboardUser) {
-            var authority = dashboardUser.authority;
-            if (authority === 'SYS_ADMIN') {
-                name = 'user.sys-admin';
-            } else if (authority === 'TENANT_ADMIN') {
-                name = 'user.tenant-admin';
-            } else if (authority === 'CUSTOMER_USER') {
-                name = 'user.customer';
-            }
-        }
-        return $translate.instant(name);
-    }
-
-    function userDisplayName() {
-        var name = "";
-        if (dashboardUser) {
-            if ((dashboardUser.firstName && dashboardUser.firstName.length > 0) ||
-                (dashboardUser.lastName && dashboardUser.lastName.length > 0)) {
-                if (dashboardUser.firstName) {
-                    name += dashboardUser.firstName;
-                }
-                if (dashboardUser.lastName) {
-                    if (name.length > 0) {
-                        name += " ";
-                    }
-                    name += dashboardUser.lastName;
-                }
-            } else {
-                name = dashboardUser.email;
-            }
-        }
-        return name;
-    }
-
-    function openProfile() {
-        $state.go('home.profile');
-    }
-
-    function logout() {
-        userService.logout();
-    }
-
     function openSidenav() {
-        isShowSidenav = true;
+        vm.isShowSidenav = true;
+    }
+
+    function goBack() {
+        $window.history.back();
     }
 
     function closeSidenav() {
-        isShowSidenav = false;
-    }
-
-    function lockSidenav() {
-        return $mdMedia('gt-sm');
+        vm.isShowSidenav = false;
     }
 
     function sidenavClicked() {
-        if (!$mdMedia('gt-sm')) {
+        if (!vm.isLockSidenav) {
             closeSidenav();
         }
     }
 
-    function showSidenav() {
-        return isShowSidenav || $mdMedia('gt-sm');
-    }
-
 }
+
+/* eslint-enable angular/angularelement */

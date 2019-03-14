@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,18 +15,16 @@
  */
 package org.thingsboard.server.dao.user;
 
-import java.util.UUID;
-
+import org.thingsboard.server.common.data.id.TenantId;
 import org.thingsboard.server.common.data.security.UserCredentials;
 import org.thingsboard.server.dao.Dao;
-import org.thingsboard.server.dao.model.UserCredentialsEntity;
+
+import java.util.UUID;
 
 /**
  * The Interface UserCredentialsDao.
- *
- * @param <T> the generic type
  */
-public interface UserCredentialsDao extends Dao<UserCredentialsEntity> {
+public interface UserCredentialsDao extends Dao<UserCredentials> {
 
     /**
      * Save or update user credentials object
@@ -34,7 +32,7 @@ public interface UserCredentialsDao extends Dao<UserCredentialsEntity> {
      * @param userCredentials the user credentials object
      * @return saved user credentials object
      */
-    UserCredentialsEntity save(UserCredentials userCredentials);
+    UserCredentials save(TenantId tenantId, UserCredentials userCredentials);
 
     /**
      * Find user credentials by user id.
@@ -42,22 +40,22 @@ public interface UserCredentialsDao extends Dao<UserCredentialsEntity> {
      * @param userId the user id
      * @return the user credentials object
      */
-    UserCredentialsEntity findByUserId(UUID userId);
-    
+    UserCredentials findByUserId(TenantId tenantId, UUID userId);
+
     /**
      * Find user credentials by activate token.
      *
      * @param activateToken the activate token
      * @return the user credentials object
      */
-    UserCredentialsEntity findByActivateToken(String activateToken);
-    
+    UserCredentials findByActivateToken(TenantId tenantId, String activateToken);
+
     /**
      * Find user credentials by reset token.
      *
      * @param resetToken the reset token
      * @return the user credentials object
      */
-    UserCredentialsEntity findByResetToken(String resetToken);
-    
+    UserCredentials findByResetToken(TenantId tenantId, String resetToken);
+
 }

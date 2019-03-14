@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,18 +13,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 import Flow from '@flowjs/ng-flow/dist/ng-flow-standalone.min';
+import UrlHandler from './url.handler';
 
 /*@ngInject*/
-export default function AppRun($rootScope, $window, $log, $state, $mdDialog, $filter, loginService, userService, $translate) {
+export default function AppRun($rootScope, $window, $injector, $location, $log, $state, $mdDialog, $filter, loginService, userService, $translate) {
 
     $window.Flow = Flow;
-    var frame = $window.frameElement;
-    var unauthorizedDialog = null;
+    var frame = null;
+    try {
+        frame = $window.frameElement;
+    } catch(e) {
+        // ie11 fix
+    }
+
     var forbiddenDialog = null;
 
+    $rootScope.iframeMode = false;
+
     if (frame) {
+        $rootScope.iframeMode = true;
         var dataWidgetAttr = angular.element(frame).attr('data-widget');
         if (dataWidgetAttr) {
             $rootScope.editWidgetInfo = angular.fromJson(dataWidgetAttr);
@@ -33,18 +41,18 @@ export default function AppRun($rootScope, $window, $log, $state, $mdDialog, $fi
     }
 
     initWatchers();
-
+    
     function initWatchers() {
         $rootScope.unauthenticatedHandle = $rootScope.$on('unauthenticated', function (event, doLogout) {
             if (doLogout) {
                 $state.go('login');
             } else {
-                checkCurrentState();
+                UrlHandler($injector, $location);
             }
         });
 
         $rootScope.authenticatedHandle = $rootScope.$on('authenticated', function () {
-            checkCurrentState();
+            UrlHandler($injector, $location);
         });
 
         $rootScope.forbiddenHandle = $rootScope.$on('forbidden', function () {
@@ -52,94 +60,102 @@ export default function AppRun($rootScope, $window, $log, $state, $mdDialog, $fi
         });
 
         $rootScope.stateChangeStartHandle = $rootScope.$on('$stateChangeStart', function (evt, to, params) {
-            if (userService.isUserLoaded() === true) {
-                if (userService.isAuthenticated()) {
-                    var authority = userService.getAuthority();
-                    if (to.module === 'public') {
-                        evt.preventDefault();
-                        $state.go('home', params);
-                    } else if (angular.isDefined(to.auth) &&
-                        to.auth.indexOf(authority) === -1) {
-                        evt.preventDefault();
-                        showForbiddenDialog();
-                    } else if (to.redirectTo) {
-                        evt.preventDefault();
-                        $state.go(to.redirectTo, params)
-                    }
-                } else {
-                    if (to.module === 'private') {
-                        evt.preventDefault();
-                        if (to.url === '/home') {
-                            $state.go('login', params);
-                        } else {
-                            showUnauthorizedDialog();
-                        }
-                    }
+
+            function waitForUserLoaded() {
+                if ($rootScope.userLoadedHandle) {
+                    $rootScope.userLoadedHandle();
                 }
-            } else {
-                evt.preventDefault();
                 $rootScope.userLoadedHandle = $rootScope.$on('userLoaded', function () {
                     $rootScope.userLoadedHandle();
                     $state.go(to.name, params);
                 });
             }
+
+            function reloadUserFromPublicId() {
+                userService.setUserFromJwtToken(null, null, false);
+                waitForUserLoaded();
+                userService.reloadUser();
+            }
+
+            var locationSearch = $location.search();
+            var publicId = locationSearch.publicId;
+            var activateToken = locationSearch.activateToken;
+
+            if (to.url === '/createPassword?activateToken' && activateToken && activateToken.length) {
+                userService.setUserFromJwtToken(null, null, false);
+            }
+
+            if (userService.isUserLoaded() === true) {
+                if (userService.isAuthenticated()) {
+                    if (userService.isPublic()) {
+                        if (userService.parsePublicId() !== publicId) {
+                            evt.preventDefault();
+                            if (publicId && publicId.length > 0) {
+                                reloadUserFromPublicId();
+                            } else {
+                                userService.logout();
+                            }
+                            return;
+                        }
+                    }
+                    if (userService.forceDefaultPlace(to, params)) {
+                        evt.preventDefault();
+                        gotoDefaultPlace(params);
+                    } else {
+                        var authority = userService.getAuthority();
+                        if (to.module === 'public') {
+                            evt.preventDefault();
+                            gotoDefaultPlace(params);
+                        } else if (angular.isDefined(to.auth) &&
+                            to.auth.indexOf(authority) === -1) {
+                            evt.preventDefault();
+                            showForbiddenDialog();
+                        } else if (to.redirectTo) {
+                            evt.preventDefault();
+                            $state.go(to.redirectTo, params);
+                        } else if (to.name === 'home.dashboards.dashboard' && $rootScope.forceFullscreen) {
+                            evt.preventDefault();
+                            $state.go('dashboard', params);
+                        }
+                    }
+                } else {
+                    if (publicId && publicId.length > 0) {
+                        evt.preventDefault();
+                        reloadUserFromPublicId();
+                    } else if (to.module === 'private') {
+                        evt.preventDefault();
+                        var redirectParams = {};
+                        redirectParams.toName = to.name;
+                        redirectParams.params = params;
+                        userService.setRedirectParams(redirectParams);
+                        $state.go('login', params);
+                    }
+                }
+            } else {
+                evt.preventDefault();
+                waitForUserLoaded();
+            }
         })
 
-        $rootScope.pageTitle = 'Thingsboard';
+        $rootScope.pageTitle = 'ThingsBoard';
 
-        $rootScope.stateChangeSuccessHandle = $rootScope.$on('$stateChangeSuccess', function (evt, to) {
+        $rootScope.stateChangeSuccessHandle = $rootScope.$on('$stateChangeSuccess', function (evt, to, params) {
+            if (userService.isPublic() && to.name === 'dashboard') {
+                $location.search('publicId', userService.getPublicId());
+                userService.updateLastPublicDashboardId(params.dashboardId);
+            }
             if (angular.isDefined(to.data.pageTitle)) {
                 $translate(to.data.pageTitle).then(function (translation) {
-                    $rootScope.pageTitle = 'Thingsboard | ' + translation;
+                    $rootScope.pageTitle = 'ThingsBoard | ' + translation;
                 }, function (translationId) {
-                    $rootScope.pageTitle = 'Thingsboard | ' + translationId;
+                    $rootScope.pageTitle = 'ThingsBoard | ' + translationId;
                 });
             }
         })
     }
 
-    function checkCurrentState() {
-        if (userService.isUserLoaded() === true) {
-            var module = $state.$current.module;
-            if (userService.isAuthenticated()) {
-                if ($state.$current.module === 'public') {
-                    $state.go('home');
-                }
-            } else {
-                if (angular.isUndefined(module) || !module) {
-                    //$state.go('login');
-                } else if ($state.$current.module === 'private') {
-                    showUnauthorizedDialog();
-                }
-            }
-        } else {
-            showUnauthorizedDialog();
-        }
-    }
-
-    function showUnauthorizedDialog() {
-        if (unauthorizedDialog === null) {
-            $translate(['access.unauthorized-access',
-                        'access.unauthorized-access-text',
-                        'access.unauthorized',
-                        'action.cancel',
-                        'action.sign-in']).then(function (translations) {
-                if (unauthorizedDialog === null) {
-                    unauthorizedDialog = $mdDialog.confirm()
-                        .title(translations['access.unauthorized-access'])
-                        .textContent(translations['access.unauthorized-access-text'])
-                        .ariaLabel(translations['access.unauthorized'])
-                        .cancel(translations['action.cancel'])
-                        .ok(translations['action.sign-in']);
-                    $mdDialog.show(unauthorizedDialog).then(function () {
-                        unauthorizedDialog = null;
-                        $state.go('login');
-                    }, function () {
-                        unauthorizedDialog = null;
-                    });
-                }
-            });
-        }
+    function gotoDefaultPlace(params) {
+        userService.gotoDefaultPlace(params);
     }
 
     function showForbiddenDialog() {

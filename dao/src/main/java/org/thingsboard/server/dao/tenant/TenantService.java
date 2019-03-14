@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package org.thingsboard.server.dao.tenant;
 
+import com.google.common.util.concurrent.ListenableFuture;
 import org.thingsboard.server.common.data.Tenant;
 import org.thingsboard.server.common.data.id.TenantId;
 import org.thingsboard.server.common.data.page.TextPageData;
@@ -22,16 +23,15 @@ import org.thingsboard.server.common.data.page.TextPageLink;
 
 public interface TenantService {
 
-    public Tenant findTenantById(TenantId tenantId);
+    Tenant findTenantById(TenantId tenantId);
+
+    ListenableFuture<Tenant> findTenantByIdAsync(TenantId callerId, TenantId tenantId);
     
-    public Tenant saveTenant(Tenant tenant);
+    Tenant saveTenant(Tenant tenant);
     
-    public void deleteTenant(TenantId tenantId);
+    void deleteTenant(TenantId tenantId);
     
-    public TextPageData<Tenant> findTenants(TextPageLink pageLink);
+    TextPageData<Tenant> findTenants(TextPageLink pageLink);
     
-    //public TextPageData<Tenant> findTenantsByTitle(String title, PageLink pageLink);
-    
-    public void deleteTenants();
-    
+    void deleteTenants();
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 import injectTapEventPlugin from 'react-tap-event-plugin';
+import UrlHandler from './url.handler';
 
 /* eslint-disable import/no-unresolved, import/default */
 
@@ -37,25 +38,30 @@ export default function AppConfig($provide,
 
     injectTapEventPlugin();
     $locationProvider.html5Mode(true);
-    $urlRouterProvider.otherwise('/home');
+    $urlRouterProvider.otherwise(UrlHandler);
     storeProvider.setCaching(false);
-
-    $translateProvider.useStaticFilesLoader({
-        prefix: 'static/locale/',// path to translations files
-        suffix: '.json'// suffix, currently- extension of the translations
-    });
-
-    $translateProvider.useSanitizeValueStrategy('sanitize');
-    $translateProvider.preferredLanguage('en_US');
-    $translateProvider.useLocalStorage();
-    $translateProvider.useMissingTranslationHandlerLog();
-    $translateProvider.addInterpolation('$translateMessageFormatInterpolation');
+    
+    $translateProvider.useSanitizeValueStrategy(null)
+                      .useMissingTranslationHandler('tbMissingTranslationHandler')
+                      .addInterpolation('$translateMessageFormatInterpolation')
+                      .useStaticFilesLoader({
+                          files: [
+                              {
+                                  prefix: PUBLIC_PATH + 'locale/locale.constant-', //eslint-disable-line
+                                  suffix: '.json'
+                              }
+                          ]
+                      })
+                      .registerAvailableLanguageKeys(SUPPORTED_LANGS, getLanguageAliases(SUPPORTED_LANGS)) //eslint-disable-line
+                      .fallbackLanguage('en_US') // must be before determinePreferredLanguage   
+                      .uniformLanguageTag('java')  // must be before determinePreferredLanguage
+                      .determinePreferredLanguage();                
 
     $httpProvider.interceptors.push('globalInterceptor');
 
-    $provide.decorator("$exceptionHandler", ['$delegate', '$injector', function ($delegate, $injector) {
+    $provide.decorator("$exceptionHandler", ['$delegate', '$injector', function ($delegate/*, $injector*/) {
         return function (exception, cause) {
-            var rootScope = $injector.get("$rootScope");
+/*            var rootScope = $injector.get("$rootScope");
             var $window = $injector.get("$window");
             var utils = $injector.get("utils");
             if (rootScope.widgetEditMode) {
@@ -63,7 +69,7 @@ export default function AppConfig($provide,
                 var data = utils.parseException(exception);
                 parentScope.$emit('widgetException', data);
                 parentScope.$apply();
-            }
+            }*/
             $delegate(exception, cause);
         };
     }]);
@@ -136,12 +142,28 @@ export default function AppConfig($provide,
             indigoTheme();
         }
 
-        $mdThemingProvider.theme('tb-search-input', 'default')
-            .primaryPalette('tb-primary')
-            .backgroundPalette('tb-primary');
-
         $mdThemingProvider.setDefaultTheme('default');
-        $mdThemingProvider.alwaysWatchTheme(true);
+        //$mdThemingProvider.alwaysWatchTheme(true);
     }
 
+    function getLanguageAliases(supportedLangs) {
+        var aliases = {};
+
+        supportedLangs.sort().forEach(function(item, index, array) {
+            if (item.length === 2) { 
+                aliases[item] = item;
+                aliases[item + '_*'] = item;
+            } else {
+                var key = item.slice(0, 2);
+                if (index === 0 || key !== array[index - 1].slice(0, 2)) {
+                    aliases[key] = item;
+                    aliases[key + '_*'] = item;
+                } else {
+                    aliases[item] = item;
+                }
+            }
+        });
+        
+        return aliases;
+    }
 }

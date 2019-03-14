@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,23 +15,27 @@
  */
 package org.thingsboard.server.dao.attributes;
 
-import com.datastax.driver.core.ResultSetFuture;
+import com.google.common.util.concurrent.ListenableFuture;
 import org.thingsboard.server.common.data.id.EntityId;
+import org.thingsboard.server.common.data.id.TenantId;
 import org.thingsboard.server.common.data.kv.AttributeKvEntry;
 
+import java.util.Collection;
 import java.util.List;
-import java.util.UUID;
+import java.util.Optional;
 
 /**
  * @author Andrew Shvayka
  */
 public interface AttributesDao {
 
-    AttributeKvEntry find(EntityId entityId, String attributeType, String attributeKey);
+    ListenableFuture<Optional<AttributeKvEntry>> find(TenantId tenantId, EntityId entityId, String attributeType, String attributeKey);
 
-    List<AttributeKvEntry> findAll(EntityId entityId, String attributeType);
+    ListenableFuture<List<AttributeKvEntry>> find(TenantId tenantId, EntityId entityId, String attributeType, Collection<String> attributeKey);
 
-    ResultSetFuture save(EntityId entityId, String attributeType, AttributeKvEntry attribute);
+    ListenableFuture<List<AttributeKvEntry>> findAll(TenantId tenantId, EntityId entityId, String attributeType);
 
-    void removeAll(EntityId entityId, String scope, List<String> keys);
+    ListenableFuture<Void> save(TenantId tenantId, EntityId entityId, String attributeType, AttributeKvEntry attribute);
+
+    ListenableFuture<List<Void>> removeAll(TenantId tenantId, EntityId entityId, String attributeType, List<String> keys);
 }

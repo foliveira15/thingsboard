@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,11 +20,11 @@ import 'brace/mode/javascript';
 import 'brace/mode/html';
 import 'brace/mode/css';
 import 'brace/mode/json';
-import 'ace-builds/src-min-noconflict/snippets/javascript';
-import 'ace-builds/src-min-noconflict/snippets/text';
-import 'ace-builds/src-min-noconflict/snippets/html';
-import 'ace-builds/src-min-noconflict/snippets/css';
-import 'ace-builds/src-min-noconflict/snippets/json';
+import 'brace/snippets/javascript';
+import 'brace/snippets/text';
+import 'brace/snippets/html';
+import 'brace/snippets/css';
+import 'brace/snippets/json';
 
 /* eslint-disable import/no-unresolved, import/default */
 
@@ -329,9 +329,13 @@ export default function WidgetEditorController(widgetService, userService, types
         $scope.$watch('vm.widget.type', function (newVal, oldVal) {
             if (!angular.equals(newVal, oldVal)) {
                 var config = angular.fromJson(vm.widget.defaultConfig);
-                if (vm.widget.type !== types.widgetType.rpc.value) {
+                if (vm.widget.type !== types.widgetType.rpc.value
+                    && vm.widget.type !== types.widgetType.alarm.value) {
                     if (config.targetDeviceAliases) {
                         delete config.targetDeviceAliases;
+                    }
+                    if (config.alarmSource) {
+                        delete config.alarmSource;
                     }
                     if (!config.datasources) {
                         config.datasources = [];
@@ -343,24 +347,40 @@ export default function WidgetEditorController(widgetService, userService, types
                             }
                         };
                     }
-                    for (var i in config.datasources) {
+                    for (var i = 0; i < config.datasources.length; i++) {
                         var datasource = config.datasources[i];
                         datasource.type = vm.widget.type;
-                        if (vm.widget.type !== types.widgetType.timeseries.value && datasource.intervalSec) {
-                            delete datasource.intervalSec;
-                        } else if (vm.widget.type === types.widgetType.timeseries.value && !datasource.intervalSec) {
-                            datasource.intervalSec = 60;
-                        }
                     }
-                } else {
+                } else if (vm.widget.type == types.widgetType.rpc.value) {
                     if (config.datasources) {
                         delete config.datasources;
+                    }
+                    if (config.alarmSource) {
+                        delete config.alarmSource;
                     }
                     if (config.timewindow) {
                         delete config.timewindow;
                     }
                     if (!config.targetDeviceAliases) {
                         config.targetDeviceAliases = [];
+                    }
+                } else { // alarm
+                    if (config.datasources) {
+                        delete config.datasources;
+                    }
+                    if (config.targetDeviceAliases) {
+                        delete config.targetDeviceAliases;
+                    }
+                    if (!config.alarmSource) {
+                        config.alarmSource = {};
+                        config.alarmSource.type = vm.widget.type
+                    }
+                    if (!config.timewindow) {
+                        config.timewindow = {
+                            realtime: {
+                                timewindowMs: 24 * 60 * 60 * 1000
+                            }
+                        };
                     }
                 }
                 vm.widget.defaultConfig = angular.toJson(config);
@@ -455,7 +475,7 @@ export default function WidgetEditorController(widgetService, userService, types
     }
 
     function onDividerDrag() {
-        for (var i in ace_editors) {
+        for (var i = 0; i < ace_editors.length; i++) {
             var ace = ace_editors[i];
             ace.resize();
             ace.renderer.updateFull();

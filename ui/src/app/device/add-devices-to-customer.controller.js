@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -52,7 +52,7 @@ export default function AddDevicesToCustomerController(deviceService, $mdDialog,
         fetchMoreItems_: function () {
             if (vm.devices.hasNext && !vm.devices.pending) {
                 vm.devices.pending = true;
-                deviceService.getTenantDevices(vm.devices.nextPageLink).then(
+                deviceService.getTenantDevices(vm.devices.nextPageLink, false).then(
                     function success(devices) {
                         vm.devices.data = vm.devices.data.concat(devices.data);
                         vm.devices.nextPageLink = devices.nextPageLink;

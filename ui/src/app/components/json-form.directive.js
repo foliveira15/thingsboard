@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -82,6 +82,7 @@ function JsonForm($compile, $templateCache, $mdColorPicker) {
                     val = undefined;
                 }
                 selectOrSet(key, scope.model, val);
+                scope.formProps.model = scope.model;
             },
             onColorClick: function(event, key, val) {
                 scope.showColorPicker(event, val);
@@ -95,7 +96,7 @@ function JsonForm($compile, $templateCache, $mdColorPicker) {
                 random: tinycolor.random(),
                 clickOutsideToClose: false,
                 hasBackdrop: false,
-                skipHide: true,
+                multiple: true,
                 preserveScope: false,
 
                 mdColorAlphaChannel: true,

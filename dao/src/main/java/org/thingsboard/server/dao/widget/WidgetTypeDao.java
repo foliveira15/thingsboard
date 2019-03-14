@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,19 +15,17 @@
  */
 package org.thingsboard.server.dao.widget;
 
+import org.thingsboard.server.common.data.id.TenantId;
 import org.thingsboard.server.common.data.widget.WidgetType;
 import org.thingsboard.server.dao.Dao;
-import org.thingsboard.server.dao.model.WidgetTypeEntity;
 
 import java.util.List;
 import java.util.UUID;
 
 /**
  * The Interface WidgetTypeDao.
- *
- * @param <T> the generic type
  */
-public interface WidgetTypeDao extends Dao<WidgetTypeEntity> {
+public interface WidgetTypeDao extends Dao<WidgetType> {
 
     /**
      * Save or update widget type object
@@ -35,7 +33,7 @@ public interface WidgetTypeDao extends Dao<WidgetTypeEntity> {
      * @param widgetType the widget type object
      * @return saved widget type object
      */
-    WidgetTypeEntity save(WidgetType widgetType);
+    WidgetType save(TenantId tenantId, WidgetType widgetType);
 
     /**
      * Find widget types by tenantId and bundleAlias.
@@ -44,7 +42,7 @@ public interface WidgetTypeDao extends Dao<WidgetTypeEntity> {
      * @param bundleAlias the bundle alias
      * @return the list of widget types objects
      */
-    List<WidgetTypeEntity> findWidgetTypesByTenantIdAndBundleAlias(UUID tenantId, String bundleAlias);
+    List<WidgetType> findWidgetTypesByTenantIdAndBundleAlias(UUID tenantId, String bundleAlias);
 
     /**
      * Find widget type by tenantId, bundleAlias and alias.
@@ -54,6 +52,6 @@ public interface WidgetTypeDao extends Dao<WidgetTypeEntity> {
      * @param alias the alias
      * @return the widget type object
      */
-    WidgetTypeEntity findByTenantIdBundleAliasAndAlias(UUID tenantId, String bundleAlias, String alias);
+    WidgetType findByTenantIdBundleAliasAndAlias(UUID tenantId, String bundleAlias, String alias);
 
 }

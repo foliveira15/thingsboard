@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,19 +15,21 @@
  */
 package org.thingsboard.server.common.data;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonProperty.Access;
 import org.thingsboard.server.common.data.id.CustomerId;
 import org.thingsboard.server.common.data.id.TenantId;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
-public class Customer extends ContactBased<CustomerId>{
+public class Customer extends ContactBased<CustomerId> implements HasName, HasTenantId {
     
     private static final long serialVersionUID = -1599722990298929275L;
     
     private String title;
     private TenantId tenantId;
-    private JsonNode additionalInfo;
-    
+
     public Customer() {
         super();
     }
@@ -40,7 +42,6 @@ public class Customer extends ContactBased<CustomerId>{
         super(customer);
         this.tenantId = customer.getTenantId();
         this.title = customer.getTitle();
-        this.additionalInfo = customer.getAdditionalInfo();
     }
 
     public TenantId getTenantId() {
@@ -59,24 +60,35 @@ public class Customer extends ContactBased<CustomerId>{
         this.title = title;
     }
 
-    public JsonNode getAdditionalInfo() {
-        return additionalInfo;
+    @JsonIgnore
+    public boolean isPublic() {
+        if (getAdditionalInfo() != null && getAdditionalInfo().has("isPublic")) {
+            return getAdditionalInfo().get("isPublic").asBoolean();
+        }
+
+        return false;
     }
 
-    public void setAdditionalInfo(JsonNode additionalInfo) {
-        this.additionalInfo = additionalInfo;
+    @JsonIgnore
+    public ShortCustomerInfo toShortCustomerInfo() {
+        return new ShortCustomerInfo(id, title, isPublic());
     }
-    
+
+    @Override
+    @JsonProperty(access = Access.READ_ONLY)
+    public String getName() {
+        return title;
+    }
+
     @Override
     public String getSearchText() {
-        return title;
+        return getTitle();
     }
 
     @Override
     public int hashCode() {
         final int prime = 31;
         int result = super.hashCode();
-        result = prime * result + ((additionalInfo == null) ? 0 : additionalInfo.hashCode());
         result = prime * result + ((tenantId == null) ? 0 : tenantId.hashCode());
         result = prime * result + ((title == null) ? 0 : title.hashCode());
         return result;
@@ -91,11 +103,6 @@ public class Customer extends ContactBased<CustomerId>{
         if (getClass() != obj.getClass())
             return false;
         Customer other = (Customer) obj;
-        if (additionalInfo == null) {
-            if (other.additionalInfo != null)
-                return false;
-        } else if (!additionalInfo.equals(other.additionalInfo))
-            return false;
         if (tenantId == null) {
             if (other.tenantId != null)
                 return false;
@@ -117,7 +124,7 @@ public class Customer extends ContactBased<CustomerId>{
         builder.append(", tenantId=");
         builder.append(tenantId);
         builder.append(", additionalInfo=");
-        builder.append(additionalInfo);
+        builder.append(getAdditionalInfo());
         builder.append(", country=");
         builder.append(country);
         builder.append(", state=");
@@ -141,5 +148,4 @@ public class Customer extends ContactBased<CustomerId>{
         builder.append("]");
         return builder.toString();
     }
-
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,31 +15,43 @@
  */
 package org.thingsboard.server.dao.dashboard;
 
+import com.google.common.util.concurrent.ListenableFuture;
 import org.thingsboard.server.common.data.Dashboard;
+import org.thingsboard.server.common.data.DashboardInfo;
 import org.thingsboard.server.common.data.id.CustomerId;
 import org.thingsboard.server.common.data.id.DashboardId;
 import org.thingsboard.server.common.data.id.TenantId;
 import org.thingsboard.server.common.data.page.TextPageData;
 import org.thingsboard.server.common.data.page.TextPageLink;
+import org.thingsboard.server.common.data.page.TimePageData;
+import org.thingsboard.server.common.data.page.TimePageLink;
 
 public interface DashboardService {
     
-    public Dashboard findDashboardById(DashboardId dashboardId);
-    
-    public Dashboard saveDashboard(Dashboard dashboard);
-    
-    public Dashboard assignDashboardToCustomer(DashboardId dashboardId, CustomerId customerId);
+    Dashboard findDashboardById(TenantId tenantId, DashboardId dashboardId);
 
-    public Dashboard unassignDashboardFromCustomer(DashboardId dashboardId);
+    ListenableFuture<Dashboard> findDashboardByIdAsync(TenantId tenantId, DashboardId dashboardId);
 
-    public void deleteDashboard(DashboardId dashboardId);
-    
-    public TextPageData<Dashboard> findDashboardsByTenantId(TenantId tenantId, TextPageLink pageLink);
+    DashboardInfo findDashboardInfoById(TenantId tenantId, DashboardId dashboardId);
 
-    public void deleteDashboardsByTenantId(TenantId tenantId);
-    
-    public TextPageData<Dashboard> findDashboardsByTenantIdAndCustomerId(TenantId tenantId, CustomerId customerId, TextPageLink pageLink);
+    ListenableFuture<DashboardInfo> findDashboardInfoByIdAsync(TenantId tenantId, DashboardId dashboardId);
 
-    public void unassignCustomerDashboards(TenantId tenantId, CustomerId customerId);
-    
+    Dashboard saveDashboard(Dashboard dashboard);
+
+    Dashboard assignDashboardToCustomer(TenantId tenantId, DashboardId dashboardId, CustomerId customerId);
+
+    Dashboard unassignDashboardFromCustomer(TenantId tenantId, DashboardId dashboardId, CustomerId customerId);
+
+    void deleteDashboard(TenantId tenantId, DashboardId dashboardId);
+
+    TextPageData<DashboardInfo> findDashboardsByTenantId(TenantId tenantId, TextPageLink pageLink);
+
+    void deleteDashboardsByTenantId(TenantId tenantId);
+
+    ListenableFuture<TimePageData<DashboardInfo>> findDashboardsByTenantIdAndCustomerId(TenantId tenantId, CustomerId customerId, TimePageLink pageLink);
+
+    void unassignCustomerDashboards(TenantId tenantId, CustomerId customerId);
+
+    void updateCustomerDashboards(TenantId tenantId, CustomerId customerId);
+
 }

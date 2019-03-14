@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import AliasController from '../api/alias-controller';
+
 /* eslint-disable import/no-unresolved, import/default */
 
 import selectWidgetTypeTemplate from './select-widget-type.tpl.html';
@@ -20,8 +22,9 @@ import selectWidgetTypeTemplate from './select-widget-type.tpl.html';
 /* eslint-enable import/no-unresolved, import/default */
 
 /*@ngInject*/
-export default function WidgetLibraryController($scope, $rootScope, widgetService, userService,
-                                                $state, $stateParams, $document, $mdDialog, $translate, $filter, types) {
+export default function WidgetLibraryController($scope, $rootScope, $q, widgetService, userService, importExport,
+                                                $state, $stateParams, $document, $mdDialog, $translate, $filter,
+                                                utils, types, entityService) {
 
     var vm = this;
 
@@ -29,16 +32,30 @@ export default function WidgetLibraryController($scope, $rootScope, widgetServic
 
     vm.widgetsBundle;
     vm.widgetTypes = [];
+    vm.dashboardInitComplete = false;
+
+    var stateController = {
+        getStateParams: function() {
+            return {};
+        }
+    };
+    vm.aliasController = new AliasController($scope, $q, $filter, utils,
+        types, entityService, stateController, {});
 
     vm.noData = noData;
+    vm.dashboardInited = dashboardInited;
+    vm.dashboardInitFailed = dashboardInitFailed;
     vm.addWidgetType = addWidgetType;
     vm.openWidgetType = openWidgetType;
+    vm.exportWidgetType = exportWidgetType;
+    vm.importWidgetType = importWidgetType;
     vm.removeWidgetType = removeWidgetType;
     vm.loadWidgetLibrary = loadWidgetLibrary;
     vm.addWidgetType = addWidgetType;
     vm.isReadOnly = isReadOnly;
 
     function loadWidgetLibrary() {
+        var deferred = $q.defer();
         $rootScope.loading = true;
         widgetService.getWidgetsBundle(widgetsBundleId).then(
             function success(widgetsBundle) {
@@ -50,7 +67,7 @@ export default function WidgetLibraryController($scope, $rootScope, widgetServic
                     widgetService.getBundleWidgetTypes(bundleAlias, isSystem).then(
                         function (widgetTypes) {
 
-                            widgetTypes = $filter('orderBy')(widgetTypes, ['-descriptor.type','name']);
+                            widgetTypes = $filter('orderBy')(widgetTypes, ['-descriptor.type','-createdTime']);
 
                             var top = 0;
                             var lastTop = [0, 0, 0];
@@ -61,6 +78,7 @@ export default function WidgetLibraryController($scope, $rootScope, widgetServic
                                 loadNext(0);
                             } else {
                                 $rootScope.loading = false;
+                                deferred.resolve();
                             }
 
                             function loadNextOrComplete(i) {
@@ -69,6 +87,7 @@ export default function WidgetLibraryController($scope, $rootScope, widgetServic
                                     loadNext(i);
                                 } else {
                                     $rootScope.loading = false;
+                                    deferred.resolve();
                                 }
                             }
 
@@ -79,7 +98,7 @@ export default function WidgetLibraryController($scope, $rootScope, widgetServic
                                     var sizeX = 8;
                                     var sizeY = Math.floor(widgetTypeInfo.sizeY);
                                     var widget = {
-                                        id: widgetType.id,
+                                        typeId: widgetType.id,
                                         isSystemType: isSystem,
                                         bundleAlias: bundleAlias,
                                         typeAlias: widgetTypeInfo.alias,
@@ -110,15 +129,26 @@ export default function WidgetLibraryController($scope, $rootScope, widgetServic
                     );
                 } else {
                     $rootScope.loading = false;
+                    deferred.resolve();
                 }
             }, function fail() {
                 $rootScope.loading = false;
+                deferred.reject();
             }
         );
+        return deferred.promise;
     }
 
     function noData() {
-        return vm.widgetTypes.length == 0;
+        return vm.dashboardInitComplete && vm.widgetTypes.length == 0;
+    }
+
+    function dashboardInitFailed() {
+        vm.dashboardInitComplete = true;
+    }
+
+    function dashboardInited() {
+        vm.dashboardInitComplete = true;
     }
 
     function addWidgetType($event) {
@@ -139,7 +169,7 @@ export default function WidgetLibraryController($scope, $rootScope, widgetServic
         }
         if (widget) {
             $state.go('home.widgets-bundles.widget-types.widget-type',
-                {widgetTypeId: widget.id.id});
+                {widgetTypeId: widget.typeId.id});
         } else {
             $mdDialog.show({
                 controller: 'SelectWidgetTypeController',
@@ -154,6 +184,21 @@ export default function WidgetLibraryController($scope, $rootScope, widgetServic
             }, function () {
             });
         }
+    }
+
+    function exportWidgetType(event, widget) {
+        event.stopPropagation();
+        importExport.exportWidgetType(widget.typeId.id);
+    }
+
+    function importWidgetType($event) {
+        $event.stopPropagation();
+        importExport.importWidgetType($event, vm.widgetsBundle.alias).then(
+            function success() {
+                $state.go($state.current, $state.params, {reload: true});
+            },
+            function fail() {}
+        );
     }
 
     function removeWidgetType(event, widget) {

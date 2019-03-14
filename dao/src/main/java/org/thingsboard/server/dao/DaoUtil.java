@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,10 @@
  */
 package org.thingsboard.server.dao;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
-
 import org.thingsboard.server.common.data.id.UUIDBased;
 import org.thingsboard.server.dao.model.ToData;
+
+import java.util.*;
 
 public abstract class DaoUtil {
 
@@ -36,7 +30,9 @@ public abstract class DaoUtil {
         if (toDataList != null && !toDataList.isEmpty()) {
             list = new ArrayList<>();
             for (ToData<T> object : toDataList) {
-                list.add(object.toData());
+                if (object != null) {
+                    list.add(object.toData());
+                }
             }
         }
         return list;
@@ -50,12 +46,28 @@ public abstract class DaoUtil {
         return object;
     }
 
+    public static <T> T getData(Optional<? extends ToData<T>> data) {
+        T object = null;
+        if (data.isPresent()) {
+            object = data.get().toData();
+        }
+        return object;
+    }
+
     public static UUID getId(UUIDBased idBased) {
         UUID id = null;
         if (idBased != null) {
             id = idBased.getId();
         }
         return id;
+    }
+
+    public static List<UUID> toUUIDs(List<? extends UUIDBased> idBasedIds) {
+        List<UUID> ids = new ArrayList<>();
+        for (UUIDBased idBased : idBasedIds) {
+            ids.add(getId(idBased));
+        }
+        return ids;
     }
 
 }

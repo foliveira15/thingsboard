@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,11 +17,25 @@ import $ from 'jquery';
 import moment from 'moment';
 import tinycolor from 'tinycolor2';
 
-import thinsboardLedLight from '../components/led-light.directive';
+import thingsboardLedLight from '../components/led-light.directive';
+import thingsboardTimeseriesTableWidget from '../widget/lib/timeseries-table-widget';
+import thingsboardAlarmsTableWidget from '../widget/lib/alarms-table-widget';
+import thingsboardEntitiesTableWidget from '../widget/lib/entities-table-widget';
+import thingsboardExtensionsTableWidget from '../widget/lib/extensions-table-widget';
 
+import thingsboardRpcWidgets from '../widget/lib/rpc';
+
+import TbFlot from '../widget/lib/flot-widget';
 import TbAnalogueLinearGauge from '../widget/lib/analogue-linear-gauge';
 import TbAnalogueRadialGauge from '../widget/lib/analogue-radial-gauge';
-import TbDigitalGauge from '../widget/lib/digital-gauge';
+import TbAnalogueCompass from '../widget/lib/analogue-compass';
+import TbCanvasDigitalGauge from '../widget/lib/canvas-digital-gauge';
+import TbMapWidget from '../widget/lib/map-widget';
+import TbMapWidgetV2 from '../widget/lib/map-widget2';
+import TripAnimationWidget from '../widget/lib/tripAnimation/trip-animation-widget';
+
+import 'jquery.terminal/js/jquery.terminal.min.js';
+import 'jquery.terminal/css/jquery.terminal.min.css';
 
 import 'oclazyload';
 import cssjs from '../../vendor/css.js/css';
@@ -29,21 +43,29 @@ import cssjs from '../../vendor/css.js/css';
 import thingsboardTypes from '../common/types.constant';
 import thingsboardUtils from '../common/utils.service';
 
-export default angular.module('thingsboard.api.widget', ['oc.lazyLoad', thinsboardLedLight, thingsboardTypes, thingsboardUtils])
+export default angular.module('thingsboard.api.widget', ['oc.lazyLoad', thingsboardLedLight, thingsboardTimeseriesTableWidget,
+    thingsboardAlarmsTableWidget, thingsboardEntitiesTableWidget, thingsboardExtensionsTableWidget, thingsboardRpcWidgets, thingsboardTypes, thingsboardUtils, TripAnimationWidget])
     .factory('widgetService', WidgetService)
     .name;
 
 /*@ngInject*/
-function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, types, utils) {
+function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, $translate, types, utils) {
 
     $window.$ = $;
+    $window.jQuery = $;
     $window.moment = moment;
     $window.tinycolor = tinycolor;
     $window.lazyLoad = $ocLazyLoad;
 
+    $window.TbFlot = TbFlot;
     $window.TbAnalogueLinearGauge = TbAnalogueLinearGauge;
     $window.TbAnalogueRadialGauge = TbAnalogueRadialGauge;
-    $window.TbDigitalGauge = TbDigitalGauge;
+    $window.TbAnalogueCompass = TbAnalogueCompass;
+    $window.TbCanvasDigitalGauge = TbCanvasDigitalGauge;
+    $window.TbMapWidget = TbMapWidget;
+    $window.TbMapWidgetV2 = TbMapWidgetV2;
+
+    $window.cssjs = cssjs;
 
     var cssParser = new cssjs();
     cssParser.testMode = false;
@@ -54,6 +76,8 @@ function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, typ
     var editingWidgetType;
 
     var widgetsInfoInMemoryCache = {};
+    var widgetsTypeFunctionsInMemoryCache = {};
+    var widgetsInfoFetchQueue = {};
 
     var allWidgetsBundles = undefined;
     var systemWidgetsBundles = undefined;
@@ -80,9 +104,11 @@ function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, typ
         deleteWidgetsBundle: deleteWidgetsBundle,
         getBundleWidgetTypes: getBundleWidgetTypes,
         getWidgetInfo: getWidgetInfo,
+        getWidgetTypeFunction: getWidgetTypeFunction,
         getInstantWidgetInfo: getInstantWidgetInfo,
         deleteWidgetType: deleteWidgetType,
         saveWidgetType: saveWidgetType,
+        saveImportedWidgetType: saveImportedWidgetType,
         getWidgetType: getWidgetType,
         getWidgetTypeById: getWidgetTypeById,
         toWidgetInfo: toWidgetInfo
@@ -120,7 +146,7 @@ function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, typ
             resources: [],
             templateHtml: '<div class="tb-widget-error-container"><div translate class="tb-widget-error-msg">widget.widget-type-not-found</div></div>',
             templateCss: '',
-            controllerScript: 'fns.init = function(containerElement, settings, datasources,\n    data) {}\n\n\nfns.redraw = function(containerElement, width, height, data) {};',
+            controllerScript: 'self.onInit = function() {}',
             settingsSchema: '{}\n',
             dataKeySettingsSchema: '{}\n',
             defaultConfig: '{\n' +
@@ -138,7 +164,7 @@ function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, typ
             resources: [],
             templateHtml: '<div class="tb-widget-error-container"><div translate class="tb-widget-error-msg">widget.widget-type-load-error</div>',
             templateCss: '',
-            controllerScript: 'fns.init = function(containerElement, settings, datasources,\n    data) {}\n\n\nfns.redraw = function(containerElement, width, height, data) {};',
+            controllerScript: 'self.onInit = function() {}',
             settingsSchema: '{}\n',
             dataKeySettingsSchema: '{}\n',
             defaultConfig: '{\n' +
@@ -225,19 +251,34 @@ function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, typ
 
     /** Cache functions **/
 
+    function createWidgetInfoCacheKey(bundleAlias, widgetTypeAlias, isSystem) {
+        return (isSystem ? 'sys_' : '') + bundleAlias + '_' + widgetTypeAlias;
+    }
+
     function getWidgetInfoFromCache(bundleAlias, widgetTypeAlias, isSystem) {
-        var key = (isSystem ? 'sys_' : '') + bundleAlias + '_' + widgetTypeAlias;
+        var key = createWidgetInfoCacheKey(bundleAlias, widgetTypeAlias, isSystem);
         return widgetsInfoInMemoryCache[key];
     }
 
+    function getWidgetTypeFunctionFromCache(bundleAlias, widgetTypeAlias, isSystem) {
+        var key = createWidgetInfoCacheKey(bundleAlias, widgetTypeAlias, isSystem);
+        return widgetsTypeFunctionsInMemoryCache[key];
+    }
+
     function putWidgetInfoToCache(widgetInfo, bundleAlias, widgetTypeAlias, isSystem) {
-        var key = (isSystem ? 'sys_' : '') + bundleAlias + '_' + widgetTypeAlias;
+        var key = createWidgetInfoCacheKey(bundleAlias, widgetTypeAlias, isSystem);
         widgetsInfoInMemoryCache[key] = widgetInfo;
     }
 
+    function putWidgetTypeFunctionToCache(widgetTypeFunction, bundleAlias, widgetTypeAlias, isSystem) {
+        var key = createWidgetInfoCacheKey(bundleAlias, widgetTypeAlias, isSystem);
+        widgetsTypeFunctionsInMemoryCache[key] = widgetTypeFunction;
+    }
+
     function deleteWidgetInfoFromCache(bundleAlias, widgetTypeAlias, isSystem) {
-        var key = (isSystem ? 'sys_' : '') + bundleAlias + '_' + widgetTypeAlias;
+        var key = createWidgetInfoCacheKey(bundleAlias, widgetTypeAlias, isSystem);
         delete widgetsInfoInMemoryCache[key];
+        delete widgetsTypeFunctionsInMemoryCache[key];
     }
 
     function deleteWidgetsBundleFromCache(bundleAlias, isSystem) {
@@ -245,6 +286,7 @@ function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, typ
         for (var cacheKey in widgetsInfoInMemoryCache) {
             if (cacheKey.startsWith(key)) {
                 delete widgetsInfoInMemoryCache[cacheKey];
+                delete widgetsTypeFunctionsInMemoryCache[cacheKey];
             }
         }
     }
@@ -257,11 +299,11 @@ function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, typ
         tenantWidgetsBundles = undefined;
     }
 
-    function loadWidgetsBundleCache() {
+    function loadWidgetsBundleCache(config) {
         var deferred = $q.defer();
         if (!allWidgetsBundles) {
             var url = '/api/widgetsBundles';
-            $http.get(url, null).then(function success(response) {
+            $http.get(url, config).then(function success(response) {
                 allWidgetsBundles = response.data;
                 systemWidgetsBundles = [];
                 tenantWidgetsBundles = [];
@@ -285,9 +327,9 @@ function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, typ
     }
 
 
-    function getSystemWidgetsBundles() {
+    function getSystemWidgetsBundles(config) {
         var deferred = $q.defer();
-        loadWidgetsBundleCache().then(
+        loadWidgetsBundleCache(config).then(
             function success() {
                 deferred.resolve(systemWidgetsBundles);
             },
@@ -298,9 +340,9 @@ function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, typ
         return deferred.promise;
     }
 
-    function getTenantWidgetsBundles() {
+    function getTenantWidgetsBundles(config) {
         var deferred = $q.defer();
-        loadWidgetsBundleCache().then(
+        loadWidgetsBundleCache(config).then(
             function success() {
                 deferred.resolve(tenantWidgetsBundles);
             },
@@ -311,9 +353,9 @@ function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, typ
         return deferred.promise;
     }
 
-    function getAllWidgetsBundles() {
+    function getAllWidgetsBundles(config) {
         var deferred = $q.defer();
-        loadWidgetsBundleCache().then(
+        loadWidgetsBundleCache(config).then(
             function success() {
                 deferred.resolve(allWidgetsBundles);
             },
@@ -453,6 +495,18 @@ function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, typ
         }
     }
 
+    function resolveWidgetsInfoFetchQueue(key, widgetInfo) {
+        var fetchQueue = widgetsInfoFetchQueue[key];
+        if (fetchQueue) {
+            for (var q in fetchQueue) {
+                if (isNaN(q))
+                  continue;
+                fetchQueue[q].resolve(widgetInfo);
+            }
+            delete widgetsInfoFetchQueue[key];
+        }
+    }
+
     function getWidgetInfo(bundleAlias, widgetTypeAlias, isSystem) {
         var deferred = $q.defer();
         var widgetInfo = getWidgetInfoFromCache(bundleAlias, widgetTypeAlias, isSystem);
@@ -462,32 +516,186 @@ function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, typ
             if ($rootScope.widgetEditMode) {
                 loadWidget(editingWidgetType, bundleAlias, isSystem, deferred);
             } else {
-                getWidgetType(bundleAlias, widgetTypeAlias, isSystem).then(
-                    function success(widgetType) {
-                        loadWidget(widgetType, bundleAlias, isSystem, deferred);
-                    }, function fail() {
-                        deferred.resolve(missingWidgetType);
-                    }
-                );
+                var key = createWidgetInfoCacheKey(bundleAlias, widgetTypeAlias, isSystem);
+                var fetchQueue = widgetsInfoFetchQueue[key];
+                if (fetchQueue) {
+                    fetchQueue.push(deferred);
+                } else {
+                    fetchQueue = [];
+                    widgetsInfoFetchQueue[key] = fetchQueue;
+                    getWidgetType(bundleAlias, widgetTypeAlias, isSystem).then(
+                        function success(widgetType) {
+                            loadWidget(widgetType, bundleAlias, isSystem, deferred);
+                        }, function fail() {
+                            deferred.resolve(missingWidgetType);
+                            resolveWidgetsInfoFetchQueue(key, missingWidgetType);
+                        }
+                    );
+                }
             }
         }
         return deferred.promise;
     }
 
+    function getWidgetTypeFunction(bundleAlias, widgetTypeAlias, isSystem) {
+        var widgetType = getWidgetTypeFunctionFromCache(bundleAlias, widgetTypeAlias, isSystem);
+        return widgetType;
+    }
+
+    function createWidgetTypeFunction(widgetInfo, name) {
+        var widgetTypeFunctionBody = 'return function '+ name +' (ctx) {\n' +
+            '    var self = this;\n' +
+            '    self.ctx = ctx;\n\n'; /*+
+
+         '    self.onInit = function() {\n\n' +
+
+         '    }\n\n' +
+
+         '    self.onDataUpdated = function() {\n\n' +
+
+         '    }\n\n' +
+
+         '    self.useCustomDatasources = function() {\n\n' +
+
+         '    }\n\n' +
+
+         '    self.typeParameters = function() {\n\n' +
+                    return {
+                                useCustomDatasources: false,
+                                maxDatasources: -1, //unlimited
+                                maxDataKeys: -1, //unlimited
+                                dataKeysOptional: false,
+                                stateData: false
+                           };
+         '    }\n\n' +
+
+         '    self.actionSources = function() {\n\n' +
+                    return {
+                                'headerButton': {
+                                   name: 'Header button',
+                                   multiple: true
+                                }
+                            };
+              }\n\n' +
+         '    self.onResize = function() {\n\n' +
+
+         '    }\n\n' +
+
+         '    self.onEditModeChanged = function() {\n\n' +
+
+         '    }\n\n' +
+
+         '    self.onMobileModeChanged = function() {\n\n' +
+
+         '    }\n\n' +
+
+         '    self.getSettingsSchema = function() {\n\n' +
+
+         '    }\n\n' +
+
+         '    self.getDataKeySettingsSchema = function() {\n\n' +
+
+         '    }\n\n' +
+
+         '    self.onDestroy = function() {\n\n' +
+
+         '    }\n\n' +
+         '}';*/
+
+        widgetTypeFunctionBody += widgetInfo.controllerScript;
+        widgetTypeFunctionBody += '\n};\n';
+        try {
+            var widgetTypeFunction = new Function(widgetTypeFunctionBody);
+            var widgetType = widgetTypeFunction.apply(this);
+            var widgetTypeInstance = new widgetType();
+            var result = {
+                widgetTypeFunction: widgetType
+            };
+            if (angular.isFunction(widgetTypeInstance.getSettingsSchema)) {
+                result.settingsSchema = widgetTypeInstance.getSettingsSchema();
+            }
+            if (angular.isFunction(widgetTypeInstance.getDataKeySettingsSchema)) {
+                result.dataKeySettingsSchema = widgetTypeInstance.getDataKeySettingsSchema();
+            }
+            if (angular.isFunction(widgetTypeInstance.typeParameters)) {
+                result.typeParameters = widgetTypeInstance.typeParameters();
+            } else {
+                result.typeParameters = {};
+            }
+            if (angular.isFunction(widgetTypeInstance.useCustomDatasources)) {
+                result.typeParameters.useCustomDatasources = widgetTypeInstance.useCustomDatasources();
+            } else {
+                result.typeParameters.useCustomDatasources = false;
+            }
+            if (angular.isUndefined(result.typeParameters.maxDatasources)) {
+                result.typeParameters.maxDatasources = -1;
+            }
+            if (angular.isUndefined(result.typeParameters.maxDataKeys)) {
+                result.typeParameters.maxDataKeys = -1;
+            }
+            if (angular.isUndefined(result.typeParameters.dataKeysOptional)) {
+                result.typeParameters.dataKeysOptional = false;
+            }
+            if (angular.isUndefined(result.typeParameters.stateData)) {
+                result.typeParameters.stateData = false;
+            }
+            if (angular.isFunction(widgetTypeInstance.actionSources)) {
+                result.actionSources = widgetTypeInstance.actionSources();
+            } else {
+                result.actionSources = {};
+            }
+            for (var actionSourceId in types.widgetActionSources) {
+                result.actionSources[actionSourceId] = angular.copy(types.widgetActionSources[actionSourceId]);
+                result.actionSources[actionSourceId].name = $translate.instant(result.actionSources[actionSourceId].name) + '';
+            }
+
+            return result;
+        } catch (e) {
+            utils.processWidgetException(e);
+            throw e;
+        }
+    }
+
+    function processWidgetLoadError(errorMessages, cacheKey, deferred) {
+        var widgetInfo = angular.copy(errorWidgetType);
+        for (var e in errorMessages) {
+            var error = errorMessages[e];
+            widgetInfo.templateHtml += '<div class="tb-widget-error-msg">' + error + '</div>';
+        }
+        widgetInfo.templateHtml += '</div>';
+        deferred.resolve(widgetInfo);
+        resolveWidgetsInfoFetchQueue(cacheKey, widgetInfo);
+    }
+
     function loadWidget(widgetType, bundleAlias, isSystem, deferred) {
         var widgetInfo = toWidgetInfo(widgetType);
+        var key = createWidgetInfoCacheKey(bundleAlias, widgetInfo.alias, isSystem);
         loadWidgetResources(widgetInfo, bundleAlias, isSystem).then(
             function success() {
-                putWidgetInfoToCache(widgetInfo, bundleAlias, widgetInfo.alias, isSystem);
-                deferred.resolve(widgetInfo);
-            }, function fail(errorMessages) {
-                widgetInfo = angular.copy(errorWidgetType);
-                for (var e in errorMessages) {
-                    var error = errorMessages[e];
-                    widgetInfo.templateHtml += '<div class="tb-widget-error-msg">' + error + '</div>';
+                var widgetType = null;
+                try {
+                    widgetType = createWidgetTypeFunction(widgetInfo, key);
+                } catch (e) {
+                    var details = utils.parseException(e);
+                    var errorMessage = 'Failed to compile widget script. \n Error: ' + details.message;
+                    processWidgetLoadError([errorMessage], key, deferred);
                 }
-                widgetInfo.templateHtml += '</div>';
-                deferred.resolve(widgetInfo);
+                if (widgetType) {
+                    if (widgetType.settingsSchema) {
+                        widgetInfo.typeSettingsSchema = widgetType.settingsSchema;
+                    }
+                    if (widgetType.dataKeySettingsSchema) {
+                        widgetInfo.typeDataKeySettingsSchema = widgetType.dataKeySettingsSchema;
+                    }
+                    widgetInfo.typeParameters = widgetType.typeParameters;
+                    widgetInfo.actionSources = widgetType.actionSources;
+                    putWidgetInfoToCache(widgetInfo, bundleAlias, widgetInfo.alias, isSystem);
+                    putWidgetTypeFunctionToCache(widgetType.widgetTypeFunction, bundleAlias, widgetInfo.alias, isSystem);
+                    deferred.resolve(widgetInfo);
+                    resolveWidgetsInfoFetchQueue(key, widgetInfo);
+                }
+            }, function fail(errorMessages) {
+                processWidgetLoadError(errorMessages, key, deferred);
             }
         );
     }
@@ -539,6 +747,19 @@ function WidgetService($rootScope, $http, $q, $filter, $ocLazyLoad, $window, typ
     function saveWidgetType(widgetInfo, id, bundleAlias) {
         var deferred = $q.defer();
         var widgetType = toWidgetType(widgetInfo, id, undefined, bundleAlias);
+        var url = '/api/widgetType';
+        $http.post(url, widgetType).then(function success(response) {
+            var widgetType = response.data;
+            deleteWidgetInfoFromCache(widgetType.bundleAlias, widgetType.alias, widgetType.tenantId.id === types.id.nullUid);
+            deferred.resolve(widgetType);
+        }, function fail() {
+            deferred.reject();
+        });
+        return deferred.promise;
+    }
+
+    function saveImportedWidgetType(widgetType) {
+        var deferred = $q.defer();
         var url = '/api/widgetType';
         $http.post(url, widgetType).then(function success(response) {
             var widgetType = response.data;

@@ -1,6 +1,6 @@
 <!--
 
-    Copyright © 2016 The Thingsboard Authors
+    Copyright © 2016-2019 The Thingsboard Authors
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -15,12 +15,15 @@
     limitations under the License.
 
 -->
+<md-button ng-click="onMakePublic({event: $event})"
+           ng-show="!isEdit && deviceScope === 'tenant' && !isAssignedToCustomer && !isPublic"
+           class="md-raised md-primary">{{ 'device.make-public' | translate }}</md-button>
 <md-button ng-click="onAssignToCustomer({event: $event})"
            ng-show="!isEdit && deviceScope === 'tenant' && !isAssignedToCustomer"
            class="md-raised md-primary">{{ 'device.assign-to-customer' | translate }}</md-button>
-<md-button ng-click="onUnassignFromCustomer({event: $event})"
+<md-button ng-click="onUnassignFromCustomer({event: $event, isPublic: isPublic})"
            ng-show="!isEdit && (deviceScope === 'customer' || deviceScope === 'tenant') && isAssignedToCustomer"
-           class="md-raised md-primary">{{ 'device.unassign-from-customer' | translate }}</md-button>
+           class="md-raised md-primary">{{ isPublic ? 'device.make-private' : 'device.unassign-from-customer' | translate }}</md-button>
 <md-button ng-click="onManageCredentials({event: $event})"
            ng-show="!isEdit"
            class="md-raised md-primary">{{ (deviceScope === 'customer_user' ? 'device.view-credentials' : 'device.manage-credentials') | translate }}</md-button>
@@ -36,10 +39,8 @@
         <md-icon md-svg-icon="mdi:clipboard-arrow-left"></md-icon>
         <span translate>device.copyId</span>
     </md-button>
-    <md-button ngclipboard data-clipboard-action="copy"
-               ngclipboard-success="onAccessTokenCopied(e)"
-               data-clipboard-text="{{deviceCredentials.credentialsId}}" ng-show="!isEdit"
-               class="md-raised">
+    <md-button ng-show="!isEdit"
+               class="md-raised" ng-click="copyAccessToken($event)">
         <md-icon md-svg-icon="mdi:clipboard-arrow-left"></md-icon>
         <span translate>device.copyAccessToken</span>
     </md-button>
@@ -47,11 +48,15 @@
 
 <md-content class="md-padding" layout="column">
     <md-input-container class="md-block"
-                        ng-show="isAssignedToCustomer && deviceScope === 'tenant'">
+                        ng-show="!isEdit && isAssignedToCustomer && !isPublic && deviceScope === 'tenant'">
         <label translate>device.assignedToCustomer</label>
         <input ng-model="assignedCustomer.title" disabled>
     </md-input-container>
-	<fieldset ng-disabled="loading || !isEdit">
+    <div class="tb-small" style="padding-bottom: 10px; padding-left: 2px;"
+         ng-show="!isEdit && isPublic && (deviceScope === 'customer' || deviceScope === 'tenant')">
+        {{ 'device.device-public' | translate }}
+    </div>
+	<fieldset ng-disabled="$root.loading || !isEdit">
 		<md-input-container class="md-block">
 			<label translate>device.name</label>
 			<input required name="name" ng-model="device.name">	
@@ -59,6 +64,18 @@
 	      		<div translate ng-message="required">device.name-required</div>
 	    	</div>				
 		</md-input-container>
+        <tb-entity-subtype-autocomplete
+                ng-disabled="$root.loading || !isEdit"
+                tb-required="true"
+                the-form="theForm"
+                ng-model="device.type"
+                entity-type="types.entityType.device">
+        </tb-entity-subtype-autocomplete>
+        <md-input-container class="md-block">
+            <md-checkbox ng-disabled="$root.loading || !isEdit" flex aria-label="{{ 'device.is-gateway' | translate }}"
+                         ng-model="device.additionalInfo.gateway">{{ 'device.is-gateway' | translate }}
+            </md-checkbox>
+        </md-input-container>
         <md-input-container class="md-block">
             <label translate>device.description</label>
             <textarea ng-model="device.additionalInfo.description" rows="2"></textarea>

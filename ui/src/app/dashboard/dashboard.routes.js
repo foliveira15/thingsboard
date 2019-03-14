@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -62,11 +62,12 @@ export default function DashboardRoutes($stateProvider) {
                 pageTitle: 'customer.dashboards'
             },
             ncyBreadcrumb: {
-                label: '{"icon": "dashboard", "label": "customer.dashboards"}'
+                label: '{"icon": "dashboard", "label": "{{ vm.customerDashboardsTitle }}", "translate": "false"}'
             }
         })
         .state('home.dashboards.dashboard', {
-            url: '/:dashboardId',
+            url: '/:dashboardId?state',
+            reloadOnSearch: false,
             module: 'private',
             auth: ['TENANT_ADMIN', 'CUSTOMER_USER'],
             views: {
@@ -85,8 +86,27 @@ export default function DashboardRoutes($stateProvider) {
                 label: '{"icon": "dashboard", "label": "{{ vm.dashboard.title }}", "translate": "false"}'
             }
         })
+        .state('dashboard', {
+            url: '/dashboard/:dashboardId?state',
+            reloadOnSearch: false,
+            module: 'private',
+            auth: ['TENANT_ADMIN', 'CUSTOMER_USER'],
+            views: {
+                "@": {
+                    templateUrl: dashboardTemplate,
+                    controller: 'DashboardController',
+                    controllerAs: 'vm'
+                }
+            },
+            data: {
+                widgetEditMode: false,
+                searchEnabled: false,
+                pageTitle: 'dashboard.dashboard'
+            }
+        })
         .state('home.customers.dashboards.dashboard', {
-            url: '/:dashboardId',
+            url: '/:dashboardId?state',
+            reloadOnSearch: false,
             module: 'private',
             auth: ['TENANT_ADMIN', 'CUSTOMER_USER'],
             views: {

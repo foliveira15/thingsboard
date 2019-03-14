@@ -1,6 +1,6 @@
 <!--
 
-    Copyright © 2016 The Thingsboard Authors
+    Copyright © 2016-2019 The Thingsboard Authors
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -129,7 +129,7 @@
                                                 <input placeholder="{{ 'widget.resource-url' | translate }}"
                                                        ng-required="true" name="resource" ng-model="resource.url">
                                             </md-input-container>
-                                            <md-button ng-disabled="loading" class="md-icon-button md-primary"
+                                            <md-button ng-disabled="$root.loading" class="md-icon-button md-primary"
                                                        ng-click="vm.removeResource($index)"
                                                        aria-label="{{ 'action.remove' | translate }}">
                                                 <md-tooltip md-direction="top">
@@ -142,7 +142,7 @@
                                             </md-button>
                                         </div>
                                         <div>
-                                            <md-button ng-disabled="loading" class="md-primary md-raised"
+                                            <md-button ng-disabled="$root.loading" class="md-primary md-raised"
                                                        ng-click="vm.addResource()"
                                                        aria-label="{{ 'action.add' | translate }}">
                                                 <md-tooltip md-direction="top">
@@ -237,7 +237,7 @@
                     <div id="frame_panel" class="tb-split tb-content" style="overflow-y: hidden; position: relative;">
                         <md-content flex layout="column" class="tb-progress-cover" layout-align="center center"
                                     ng-show="!vm.iframeWidgetEditModeInited">
-                            <md-progress-circular md-mode="indeterminate" class="md-warn"
+                            <md-progress-circular ng-disabled="vm.iframeWidgetEditModeInited" md-mode="indeterminate" class="md-warn"
                                                   md-diameter="100"></md-progress-circular>
                         </md-content>
                         <div tb-expand-fullscreen expand-button-id="expand-button" style="width: 100%; height: 100%;">
@@ -253,6 +253,6 @@
         </div>
     </div>
     <md-content flex layout="column" class="tb-progress-cover" layout-align="center center" ng-show="!vm.layoutInited">
-        <md-progress-circular md-mode="indeterminate" class="md-warn" md-diameter="100"></md-progress-circular>
+        <md-progress-circular md-mode="indeterminate" ng-disabled="vm.layoutInited" class="md-warn" md-diameter="100"></md-progress-circular>
     </md-content>
 </div>

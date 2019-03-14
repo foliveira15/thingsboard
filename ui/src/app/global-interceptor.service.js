@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -111,11 +111,12 @@ export default function GlobalInterceptor($rootScope, $q, $injector) {
     function request(config) {
         var rejected = false;
         if (config.url.startsWith('/api/')) {
-            $rootScope.loading = !isInternalUrlPrefix(config.url);
+            var isLoading = !isInternalUrlPrefix(config.url);
+            updateLoadingState(config, isLoading);
             if (isTokenBasedAuthEntryPoint(config.url)) {
                 if (!getUserService().updateAuthorizationHeader(config.headers) &&
                     !getUserService().refreshTokenPending()) {
-                    $rootScope.loading = false;
+                    updateLoadingState(config, false);
                     rejected = true;
                     getUserService().clearJwtToken(false);
                     return $q.reject({ data: {message: getTranslate().instant('access.unauthorized')}, status: 401, config: config});
@@ -131,23 +132,24 @@ export default function GlobalInterceptor($rootScope, $q, $injector) {
 
     function requestError(rejection) {
         if (rejection.config.url.startsWith('/api/')) {
-            $rootScope.loading = false;
+            updateLoadingState(rejection.config, false);
         }
         return $q.reject(rejection);
     }
 
     function response(response) {
         if (response.config.url.startsWith('/api/')) {
-            $rootScope.loading = false;
+            updateLoadingState(response.config, false);
         }
         return response;
     }
 
     function responseError(rejection) {
         if (rejection.config.url.startsWith('/api/')) {
-            $rootScope.loading = false;
+            updateLoadingState(rejection.config, false);
         }
         var unhandled = false;
+        var ignoreErrors = rejection.config.ignoreErrors;
         if (rejection.refreshTokenPending || rejection.status === 401) {
             var errorCode = rejectionErrorCode(rejection);
             if (rejection.refreshTokenPending || (errorCode && errorCode === getTypes().serverErrorCode.jwtTokenExpired)) {
@@ -156,19 +158,23 @@ export default function GlobalInterceptor($rootScope, $q, $injector) {
                 unhandled = true;
             }
         } else if (rejection.status === 403) {
-            $rootScope.$broadcast('forbidden');
+            if (!ignoreErrors) {
+                $rootScope.$broadcast('forbidden');
+            }
         } else if (rejection.status === 0 || rejection.status === -1) {
             getToast().showError(getTranslate().instant('error.unable-to-connect'));
         } else if (!rejection.config.url.startsWith('/api/plugins/rpc')) {
             if (rejection.status === 404) {
-                getToast().showError(rejection.config.method + ": " + rejection.config.url + "<br/>" +
-                    rejection.status + ": " + rejection.statusText);
+                if (!ignoreErrors) {
+                    getToast().showError(rejection.config.method + ": " + rejection.config.url + "<br/>" +
+                        rejection.status + ": " + rejection.statusText);
+                }
             } else {
                 unhandled = true;
             }
         }
 
-        if (unhandled) {
+        if (unhandled && !ignoreErrors) {
             if (rejection.data && !rejection.data.message) {
                 getToast().showError(rejection.data);
             } else if (rejection.data && rejection.data.message) {
@@ -178,5 +184,11 @@ export default function GlobalInterceptor($rootScope, $q, $injector) {
             }
         }
         return $q.reject(rejection);
+    }
+
+    function updateLoadingState(config, isLoading) {
+        if (!config || angular.isUndefined(config.ignoreLoading) || !config.ignoreLoading) {
+            $rootScope.loading = isLoading;
+        }
     }
 }

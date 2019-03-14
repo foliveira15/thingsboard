@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 The Thingsboard Authors
+ * Copyright © 2016-2019 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,79 +21,113 @@ import thingsboardApiUser from '../api/user.service';
 /* eslint-disable import/no-unresolved, import/default */
 
 import dashboardSelectTemplate from './dashboard-select.tpl.html';
+import dashboardSelectPanelTemplate from './dashboard-select-panel.tpl.html';
 
 /* eslint-enable import/no-unresolved, import/default */
+
+import DashboardSelectPanelController from './dashboard-select-panel.controller';
 
 
 export default angular.module('thingsboard.directives.dashboardSelect', [thingsboardApiDashboard, thingsboardApiUser])
     .directive('tbDashboardSelect', DashboardSelect)
+    .controller('DashboardSelectPanelController', DashboardSelectPanelController)
     .name;
 
 /*@ngInject*/
-function DashboardSelect($compile, $templateCache, $q, dashboardService, userService) {
+function DashboardSelect($compile, $templateCache, $q, $mdMedia, $mdPanel, $document, types, dashboardService, userService) {
 
     var linker = function (scope, element, attrs, ngModelCtrl) {
         var template = $templateCache.get(dashboardSelectTemplate);
         element.html(template);
 
         scope.tbRequired = angular.isDefined(scope.tbRequired) ? scope.tbRequired : false;
-        scope.dashboard = null;
-        scope.dashboardSearchText = '';
+        scope.dashboardId = null;
 
-        scope.dashboardFetchFunction = dashboardService.getTenantDashboards;
-        if (angular.isDefined(scope.dashboardsScope)) {
-            if (scope.dashboardsScope === 'customer') {
-                scope.dashboardFetchFunction = dashboardService.getCustomerDashboards;
+        var pageLink = {limit: 100};
+
+        var promise;
+        if (scope.dashboardsScope === 'customer' || userService.getAuthority() === 'CUSTOMER_USER') {
+            if (scope.customerId && scope.customerId != types.id.nullUid) {
+                promise = dashboardService.getCustomerDashboards(scope.customerId, pageLink, {ignoreLoading: true});
             } else {
-                scope.dashboardFetchFunction = dashboardService.getTenantDashboards;
+                promise = $q.when({data: []});
             }
         } else {
-            if (userService.getAuthority() === 'TENANT_ADMIN') {
-                scope.dashboardFetchFunction = dashboardService.getTenantDashboards;
-            } else if (userService.getAuthority() === 'CUSTOMER_USER') {
-                scope.dashboardFetchFunction = dashboardService.getCustomerDashboards;
-            }
+            promise = dashboardService.getTenantDashboards(pageLink, {ignoreLoading: true});
         }
 
-        scope.fetchDashboards = function(searchText) {
-            var pageLink = {limit: 10, textSearch: searchText};
-
-            var deferred = $q.defer();
-
-            scope.dashboardFetchFunction(pageLink).then(function success(result) {
-                deferred.resolve(result.data);
-            }, function fail() {
-                deferred.reject();
-            });
-
-            return deferred.promise;
-        }
-
-        scope.dashboardSearchTextChanged = function() {
-        }
+        promise.then(function success(result) {
+            scope.dashboards = result.data;
+        }, function fail() {
+            scope.dashboards = [];
+        });
 
         scope.updateView = function () {
-            ngModelCtrl.$setViewValue(scope.dashboard);
+            ngModelCtrl.$setViewValue(scope.dashboardId);
         }
 
         ngModelCtrl.$render = function () {
             if (ngModelCtrl.$viewValue) {
-                scope.dashboard = ngModelCtrl.$viewValue;
+                scope.dashboardId = ngModelCtrl.$viewValue;
+            } else {
+                scope.dashboardId = null;
             }
         }
 
-        scope.$watch('dashboard', function () {
+        scope.$watch('dashboardId', function () {
             scope.updateView();
         });
 
-        if (scope.selectFirstDashboard) {
-            var pageLink = {limit: 1, textSearch: ''};
-            scope.dashboardFetchFunction(pageLink).then(function success(result) {
-                var dashboards = result.data;
-                if (dashboards.length > 0) {
-                    scope.dashboard = dashboards[0];
-                }
-            }, function fail() {
+        scope.openDashboardSelectPanel = function (event) {
+            if (scope.disabled) {
+                return;
+            }
+            var position;
+            var panelHeight = $mdMedia('min-height: 350px') ? 250 : 150;
+            var panelWidth = 300;
+            var offset = element[0].getBoundingClientRect();
+            var bottomY = offset.bottom - $(window).scrollTop(); //eslint-disable-line
+            var leftX = offset.left - $(window).scrollLeft(); //eslint-disable-line
+            var yPosition;
+            var xPosition;
+            if (bottomY + panelHeight > $( window ).height()) { //eslint-disable-line
+                yPosition = $mdPanel.yPosition.ABOVE;
+            } else {
+                yPosition = $mdPanel.yPosition.BELOW;
+            }
+            if (leftX + panelWidth > $( window ).width()) { //eslint-disable-line
+                xPosition = $mdPanel.xPosition.CENTER;
+            } else {
+                xPosition = $mdPanel.xPosition.ALIGN_START;
+            }
+            position = $mdPanel.newPanelPosition()
+                .relativeTo(element)
+                .addPanelPosition(xPosition, yPosition);
+            var config = {
+                attachTo: angular.element($document[0].body),
+                controller: 'DashboardSelectPanelController',
+                controllerAs: 'vm',
+                templateUrl: dashboardSelectPanelTemplate,
+                panelClass: 'tb-dashboard-select-panel',
+                position: position,
+                fullscreen: false,
+                locals: {
+                    dashboards: scope.dashboards,
+                    dashboardId: scope.dashboardId,
+                    onDashboardSelected: (dashboardId) => {
+                        if (scope.panelRef) {
+                            scope.panelRef.close();
+                        }
+                        scope.dashboardId = dashboardId;
+                    }
+                },
+                openFrom: event,
+                clickOutsideToClose: true,
+                escapeToClose: true,
+                focusOnOpen: false
+            };
+            $mdPanel.open(config).then(function(result) {
+                scope.panelRef = result;
             });
         }
 
@@ -106,9 +140,9 @@ function DashboardSelect($compile, $templateCache, $q, dashboardService, userSer
         link: linker,
         scope: {
             dashboardsScope: '@',
-            theForm: '=?',
+            customerId: '=',
             tbRequired: '=?',
-            selectFirstDashboard: '='
+            disabled:'=ngDisabled'
         }
     };
 }
